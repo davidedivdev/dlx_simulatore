@@ -3,343 +3,995 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Simulatore DLX e bus</title>
+<title>Simulatore DLX</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 /* VOICE: banco di laboratorio, preciso e didattico.
-   IDEA: la scheda madre vista dall'oscilloscopio: fili che si accendono quando portano un segnale.
-   PICTURE: lo schema CPU + bus + memorie + porte, grande, con i valori sopra ogni filo.
+   IDEA: la scheda vista all'oscilloscopio: i fili si accendono quando portano un segnale, ogni pezzo si tocca e si spiega.
+   PICTURE: lo schema completo (datapath + bus + banchi di memoria + porte, oppure pipeline a 5 stadi), grande.
    COLOUR and TYPE: PCB verde scurissimo; ciano indirizzi, ambra dati, verde controllo, magenta CS, grigio tratteggiato Hi-Z. Space Grotesk + IBM Plex Mono.
-   LAYOUT: comandi e timeline in alto, schema a tutta larghezza, sotto fase/quiz e programma. */
+   LAYOUT: schede Sequenziale / Pipelined / Confronto; comandi, schema a tutta larghezza, sotto spiegazione e quiz. */
 :root{color-scheme:dark;--bg:#07120e;--pan:#0d1d17;--pan2:#12281f;--line:#1f3a2f;--ink:#dbe9e1;--mut:#86a396;
---addr:#3fd0ff;--data:#ffb547;--ctl:#5be38c;--cs:#ff5fa8;--hiz:#4d6159;--idle:#284238;--bad:#ff6b6b}
+--addr:#3fd0ff;--data:#ffb547;--ctl:#5be38c;--cs:#ff5fa8;--hiz:#4d6159;--idle:#284238;--bad:#ff6b6b;--vio:#b892ff}
 *{box-sizing:border-box;min-width:0}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Space Grotesk",system-ui,sans-serif;overflow-x:clip}
-.band{padding:clamp(18px,3vw,36px) max(4vw,14px)}
+.band{padding:clamp(16px,3vw,32px) max(4vw,14px)}
 h1{font-size:clamp(26px,3.4vw,40px);line-height:1.05;margin:0 0 6px;text-wrap:balance}
-.sub{color:var(--mut);margin:0;max-width:75ch}
-.ctrls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+.sub{color:var(--mut);margin:0;max-width:80ch}
+.tabs{display:flex;gap:6px;margin-top:16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tabs a{color:var(--mut);text-decoration:none;font-weight:600;padding:10px 16px;border-radius:10px 10px 0 0;border:1px solid transparent;border-bottom:0;min-height:44px;display:flex;align-items:center}
+.tabs a.on{color:var(--ink);background:var(--pan);border-color:var(--line)}
+.tabs a:focus-visible{outline:2px solid var(--addr)}
+.ctrls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
 button,select,input[type=text]{font:600 15px "Space Grotesk",sans-serif;min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--pan2);color:var(--ink);padding:0 16px;cursor:pointer}
-input[type=text]{width:64px;padding:0 10px;font:600 16px "IBM Plex Mono",monospace;cursor:text;text-transform:uppercase}
+input[type=text]{width:62px;padding:0 10px;font:600 16px "IBM Plex Mono",monospace;cursor:text;text-transform:uppercase}
 button:hover,select:hover{border-color:var(--mut)}
 button:focus-visible,select:focus-visible,input:focus-visible,input:focus-visible+.sw{outline:2px solid var(--addr);outline-offset:2px}
 .pri{background:var(--data);color:#1b1203;border-color:var(--data)}
 button:disabled{opacity:.45;cursor:default}
-.cnt{font:600 14px "IBM Plex Mono",monospace;color:var(--mut);margin-left:auto}
+.cnt{font:600 14px "IBM Plex Mono",monospace;color:var(--mut);margin-left:auto;white-space:nowrap}
 .tog{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;font-weight:600}
 .tog input{position:absolute;opacity:0}
 .sw{width:46px;height:26px;border-radius:13px;background:var(--idle);position:relative;transition:.2s;flex:none}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--ink);transition:.2s}
 .tog input:checked+.sw{background:var(--data)}.tog input:checked+.sw::after{left:23px}
 .ports{display:flex;gap:8px;align-items:center;font-weight:600;color:var(--mut)}
-.tl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:14px}
-.tg{display:flex;flex-direction:column;gap:4px}
-.tg b{font:600 12px "IBM Plex Mono",monospace;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tg div{display:grid;grid-template-columns:repeat(5,1fr);gap:3px}
-.tg button{min-height:32px;padding:0;font:600 11px "IBM Plex Mono",monospace;border-radius:6px}
-.tg button.done{background:#1c3a2d;color:var(--ink)}.tg button.cur{background:var(--ctl);color:#06210f;border-color:var(--ctl)}
-.scroll{overflow-x:auto;background:var(--pan);border:1px solid var(--line);border-radius:14px;margin-top:14px}
-#fig{display:block;width:100%;min-width:980px;height:auto}
-.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;margin-top:18px}
-@media(max-width:820px){.grid{grid-template-columns:minmax(0,1fr)}.tl{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.figwrap{position:relative;margin-top:14px}
+.scroll{overflow-x:auto;background:var(--pan);border:1px solid var(--line);border-radius:14px}
+.fig{display:block;width:100%;min-width:1000px;height:auto}
+.hint{font-size:13px;color:var(--mut);margin:8px 2px 0}
 .card{background:var(--pan);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
-.card+.card{margin-top:18px}
+.grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:18px;margin-top:18px}
+@media(max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.stack>*+*{margin-top:18px}
 .phases{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 .ph{font:600 13px "IBM Plex Mono",monospace;padding:6px 10px;border-radius:8px;background:var(--pan2);color:var(--mut);border:1px solid var(--line)}
 .ph.on{background:var(--ctl);color:#06210f;border-color:var(--ctl)}.ph.done{color:var(--ink)}
 h2{font-size:22px;margin:0 0 8px;line-height:1.2}
+h3{font-size:17px;margin:0 0 8px}
 .rtl{font:600 15px "IBM Plex Mono",monospace;color:var(--data);background:#1a1508;border:1px solid #4a3510;border-radius:8px;padding:8px 12px;margin:0 0 12px;overflow-wrap:anywhere}
-#txt p{margin:0 0 8px}
-.bus{font:13px/1.6 "IBM Plex Mono",monospace;color:var(--mut);border-top:1px solid var(--line);padding-top:10px;margin-top:10px}
+.txt p{margin:0 0 8px}
+.bus{font:13px/1.6 "IBM Plex Mono",monospace;color:var(--mut);border-top:1px solid var(--line);padding-top:10px;margin-top:10px;overflow-wrap:anywhere}
 .quiz{border:1px solid var(--addr);background:#0b2330;border-radius:12px;padding:14px 16px;margin-bottom:14px}
-.quiz h3{margin:0 0 10px;font-size:17px}
-.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
-.opts button{font-family:"IBM Plex Mono",monospace;font-size:14px}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+.opts button{font-family:"IBM Plex Mono",monospace;font-size:13px;text-align:left;padding:8px 12px;line-height:1.35}
 .fb{border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:15px}
 .fb.ok{background:#123a24;border:1px solid var(--ctl)}.fb.ko{background:#3a1616;border:1px solid var(--bad)}
 .score{font:600 13px "IBM Plex Mono",monospace;color:var(--addr)}
 .prog{list-style:none;margin:0;padding:0;font:14px/1.5 "IBM Plex Mono",monospace}
-.prog li{display:grid;grid-template-columns:7.5em 1fr;gap:8px;padding:8px 10px;border-radius:8px}
-.prog li span:first-child{color:var(--mut)}
+.prog li{display:grid;grid-template-columns:6.2em 1fr;gap:8px;padding:7px 10px;border-radius:8px}
+.prog li>span:first-child{color:var(--mut)}
 .prog li.cur{background:var(--pan2);outline:1px solid var(--data)}.prog li.done{color:var(--mut)}
 .prog small{grid-column:2;font:13px "Space Grotesk",sans-serif;color:var(--mut)}
 .note{font-size:13px;color:var(--mut);margin:12px 0 0}
-#info{font-size:15px}#info b{color:var(--addr)}
 code{font-family:"IBM Plex Mono",monospace;font-size:.92em;color:var(--data)}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.stat{background:var(--pan);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:120px}
+.stat b{display:block;font:700 24px "Space Grotesk",sans-serif;line-height:1.1}.stat span{font-size:13px;color:var(--mut)}
+/* info card */
+.info{position:absolute;z-index:5;width:min(360px,92vw);background:#0f2a21;border:1px solid var(--addr);border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px #000a;font-size:14.5px}
+.info h3{margin:0 30px 6px 0;color:var(--addr)}
+.info p{margin:0 0 6px}.info .now{color:var(--data);border-top:1px solid var(--line);padding-top:6px;margin-top:8px}
+.info .x{position:absolute;top:6px;right:6px;min-height:36px;padding:0 12px}
+/* timing table */
+.tt{border-collapse:collapse;font:12px "IBM Plex Mono",monospace;min-width:100%}
+.tt th,.tt td{border:1px solid var(--line);padding:0;text-align:center;height:30px;min-width:40px}
+.tt th{color:var(--mut);font-weight:600;cursor:pointer}.tt th.cur{background:var(--ctl);color:#06210f}
+.tt td.n{text-align:left;padding:0 10px;white-space:nowrap;min-width:190px}
+.tt td.fl .lb{opacity:.45;text-decoration:line-through}
+.tt td.cur{outline:2px solid var(--ctl);outline-offset:-2px}
+.c-IF{background:#123049}.c-ID{background:#173b2a}.c-EX{background:#3a2e10}.c-MEM{background:#3a1830}.c-WB{background:#2a2142}.c-S{background:#4a1616;color:#ffb3b3}.c-N{background:#1a2420;color:var(--mut)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:-1px}
+table.cmp{width:100%;border-collapse:collapse;font-size:15px}
+table.cmp th,table.cmp td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+table.cmp th{color:var(--mut);font-weight:600}
+table.cmp td:first-child{font-weight:600}
+table.num td:not(:first-child),table.num th:not(:first-child){text-align:right;font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+.scrollx{overflow-x:auto}
+[hidden]{display:none!important}
 /* SVG */
 .bx{fill:var(--pan2);stroke:var(--line);stroke-width:1.5}
-.bx.wr{stroke:var(--data);stroke-width:2.5}.bx.sel{stroke:var(--cs);stroke-width:2.5}
-.hit{cursor:pointer}.hit:hover .bx{stroke:var(--addr)}.hit.pick .bx{stroke:var(--addr);stroke-width:2.5}
-.cpu{fill:#0a1913;stroke:#2c5546;stroke-width:2;stroke-dasharray:2 4}
+.bx.wr{stroke:var(--data);stroke-width:2.5}.bx.sel{stroke:var(--cs);stroke-width:2.5}.bx.act{stroke:var(--ctl);stroke-width:2.2}
+.hit{cursor:pointer}.hit:hover .bx{stroke:var(--addr)}.hit.pick .bx{stroke:var(--addr);stroke-width:3}
+.frame{fill:#0a1913;stroke:#2c5546;stroke-width:2;stroke-dasharray:2 4}
+.stg{fill:#0b1a14;stroke:#183229}
+.bar{fill:#141f30;stroke:#2f4a6a;stroke-width:1.5}
 .t{font:600 13px "Space Grotesk",sans-serif;fill:var(--ink)}
 .s{font:500 11px "Space Grotesk",sans-serif;fill:var(--mut)}
 .v{font:600 13px "IBM Plex Mono",monospace;fill:var(--ink)}
 .vs{font:500 11px "IBM Plex Mono",monospace;fill:var(--mut)}
-.lbl{font:600 12px "IBM Plex Mono",monospace;paint-order:stroke;stroke:var(--pan);stroke-width:5px}
+.lbl{font:600 12px "IBM Plex Mono",monospace;paint-order:stroke;stroke:var(--pan);stroke-width:5px;fill:var(--mut)}
 .w{fill:none;stroke:var(--idle);stroke-width:2.2;stroke-linejoin:round}
 .w.hz{stroke:var(--hiz);stroke-dasharray:6 5}.w.on{stroke-width:3.4}
-.w.addr{stroke:var(--addr)}.w.data{stroke:var(--data)}.w.ctl{stroke:var(--ctl)}.w.cs{stroke:var(--cs)}
+.w.addr{stroke:var(--addr)}.w.data{stroke:var(--data)}.w.ctl{stroke:var(--ctl)}.w.cs{stroke:var(--cs)}.w.vio{stroke:var(--vio)}.w.bad{stroke:var(--bad)}
 .w.dim{stroke-width:2.2;opacity:.55}
+.bb{fill:none;stroke:#1d3a2e;stroke-width:7;stroke-linecap:round}
 .flow{fill:none;stroke:#fff;stroke-opacity:.55;stroke-width:1.6;stroke-dasharray:3 16;animation:fl 1s linear infinite;pointer-events:none}
 @keyframes fl{to{stroke-dashoffset:-19}}
 .row{fill:transparent}.row.rd{fill:#123a4a}.row.wr{fill:#4a3510}
 .led{fill:#1c2c25;stroke:var(--line)}.led.on{fill:var(--cs);stroke:var(--cs)}
 .tri{fill:var(--pan2);stroke:var(--mut);stroke-width:1.5}.tri.on{stroke:var(--data);fill:#3a2a0c}
 @media(prefers-reduced-motion:reduce){.flow{display:none}.sw,.sw::after{transition:none}}
+.mob{display:none}
+@media(max-width:1040px){.mob{display:block}}
+@media(max-width:700px){.info{position:fixed;left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-height:55vh;overflow:auto}}
+.cases{font-size:14px;color:var(--mut);margin:8px 2px 0}.cases b{color:var(--ink)}
+/* editor */
+textarea{width:100%;min-height:190px;font:14px/1.5 "IBM Plex Mono",monospace;background:#081510;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;resize:vertical}
+textarea:focus-visible{outline:2px solid var(--addr);outline-offset:2px}
+.err{color:var(--bad);font:13px "IBM Plex Mono",monospace;margin:8px 0 0;white-space:pre-wrap}
+.ok2{color:var(--ctl);font-size:14px;margin:8px 0 0}
+.ed{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px}
+@media(max-width:860px){.ed{grid-template-columns:minmax(0,1fr)}}
+/* griglia da compilare */
+.tt td.g{cursor:pointer;font-weight:600}
+.tt td.g:focus-visible{outline:2px solid var(--addr);outline-offset:-2px}
+.tt td.g:hover{background:#163026}
+.tt td.gk{box-shadow:inset 0 0 0 2px var(--ctl)}.tt td.gx{box-shadow:inset 0 0 0 2px var(--bad)}.tt td.gm{box-shadow:inset 0 0 0 2px var(--bad);background:repeating-linear-gradient(45deg,#2a1212 0 4px,transparent 4px 8px)}
+.gbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
+/* BTB */
+.btb{border-collapse:collapse;font:12px "IBM Plex Mono",monospace}
+.btb th,.btb td{border:1px solid var(--line);padding:4px 6px;text-align:center;white-space:nowrap}
+.btb th{color:var(--mut);font-weight:600;text-align:left}
+.btb .T{color:var(--ctl)}.btb .N{color:var(--data)}.btb .ko{background:#3a1616;color:#ffb3b3}.btb .okc{background:#123a24}
+input[type=number]{font:600 16px "IBM Plex Mono",monospace;min-height:44px;width:72px;border-radius:10px;border:1px solid var(--line);background:var(--pan2);color:var(--ink);padding:0 10px}
 </style>
 </head>
 <body>
 <header class="band" style="padding-bottom:0">
-  <h1>Simulatore DLX: CPU, bus e periferiche</h1>
-  <p class="sub">Una fase alla volta: cosa succede nel datapath e, nello stesso istante, sui fili della scheda. I bus che nessuno pilota sono in alta impedenza (grigio tratteggiato). Tocca un blocco dello schema per la sua spiegazione.</p>
-  <div class="ctrls">
-    <button id="back" aria-label="Fase precedente">◀ Indietro</button>
-    <button id="next" class="pri">Avanza fase ▶</button>
-    <button id="reset">Reset</button>
-    <select id="demo" aria-label="Programma">
-      <option value="0">Demo 1 · LH + SW (halfword, word)</option>
-      <option value="1">Demo 2 · LB + SB (corsie di byte)</option>
-    </select>
-    <select id="mode" aria-label="Modalità">
-      <option value="0">Passo-passo manuale</option>
-      <option value="2500">Automatico lento</option>
-      <option value="1300">Automatico medio</option>
-      <option value="650">Automatico veloce</option>
-    </select>
-    <button id="play" hidden>⏸ Pausa</button>
-  </div>
-  <div class="ctrls">
-    <label class="tog"><input type="checkbox" id="quiz"><span class="sw"></span>Modalità quiz</label>
-    <label class="tog"><input type="checkbox" id="swap"><span class="sw"></span>Inverti tri-state (SWAP)</label>
-    <span class="ports">Porta A <input type="text" id="pa" value="AA" maxlength="2" aria-label="Valore porta A"> Porta B <input type="text" id="pb" value="55" maxlength="2" aria-label="Valore porta B"></span>
-    <span class="cnt" id="cnt"></span>
-  </div>
-  <div class="tl" id="tl"></div>
+  <h1>Simulatore DLX: sequenziale e pipelined</h1>
+  <p class="sub">Clock per clock, come nelle slide del corso. <b>Tocca qualsiasi pezzo dello schema</b> (registri, bus, ALU, decoder, banchi di memoria, tri-state, registri di pipeline…) per sapere cos'è, a cosa serve e cosa sta facendo in quel clock.</p>
+  <nav class="tabs" id="tabs">
+    <a href="#sequenziale" data-t="seq">DLX sequenziale</a>
+    <a href="#pipeline" data-t="pipe">DLX pipelined</a>
+    <a href="#confronto" data-t="cmp">Confronto</a>
+  </nav>
 </header>
-<main class="band" style="padding-top:0">
-  <div class="scroll"><svg id="fig" viewBox="0 0 1280 700" role="img" aria-label="Schema del sistema DLX"></svg></div>
+
+<main>
+<!-- ============ SEQUENZIALE ============ -->
+<section id="v-seq" class="band" style="padding-top:0">
+  <div class="ctrls">
+    <button id="s-back" aria-label="Clock precedente">◀ Indietro</button>
+    <button id="s-next" class="pri">Avanza clock ▶</button>
+    <button id="s-reset">Reset</button>
+    <select id="s-prog" aria-label="Programma"></select>
+    <select id="s-mode" aria-label="Modalità"><option value="0">Passo-passo</option><option value="2200">Auto lento</option><option value="1100">Auto medio</option><option value="550">Auto veloce</option></select>
+    <button id="s-play" hidden>⏸ Pausa</button>
+    <span class="cnt" id="s-cnt"></span>
+  </div>
+  <div class="ctrls">
+    <label class="ports">Quiz <select id="s-quizm" aria-label="Modalità quiz"><option value="0">spento</option><option value="1">punti chiave</option><option value="2">ogni clock</option></select></label>
+    <label class="tog"><input type="checkbox" id="s-wait"><span class="sw"></span>Memoria lenta (1 wait, READY = 0)</label>
+    <label class="tog"><input type="checkbox" id="s-swap"><span class="sw"></span>SWAP tri-state</label>
+    <span class="ports">Porta A <input type="text" id="s-pa" value="AA" maxlength="2" aria-label="Valore porta A"> Porta B <input type="text" id="s-pb" value="55" maxlength="2" aria-label="Valore porta B"></span>
+  </div>
+  <div class="figwrap" id="s-wrap">
+    <div class="scroll"><svg class="fig" id="s-fig" viewBox="0 0 1280 1010" role="img" aria-label="Datapath del DLX sequenziale e sistema con bus, decoder, EPROM, RAM e porte"></svg></div>
+  </div>
+  <p class="hint mob">↔ Scorri lo schema in orizzontale per vederlo tutto.</p>
+  <p class="hint">In alto la CPU (datapath delle slide 07: bus S1, S2, Dest, registri, ALU, MAR/MDR). In basso la scheda: bus di sistema, decoder di 1° livello, EPROM e RAM disegnate come 4 banchi da 8 bit (uno per corsia di BD), porte di input con i buffer tri-state.</p>
   <div class="grid">
     <section class="card">
-      <div id="qz"></div>
-      <div class="phases" id="phases"></div>
-      <h2 id="ttl"></h2>
-      <p class="rtl" id="rtl"></p>
-      <div id="txt"></div>
-      <div class="bus" id="busline"></div>
+      <div id="s-qz"></div>
+      <div class="phases" id="s-ph"></div>
+      <h2 id="s-ttl"></h2>
+      <p class="rtl" id="s-rtl"></p>
+      <div class="txt" id="s-txt"></div>
+      <div class="bus" id="s-bus"></div>
     </section>
-    <div>
-      <section class="card"><h2 id="infoT">Componente</h2><div id="info">Tocca un blocco dello schema (PC, IR, register file, mux, decoder, memorie, porte, bus) per vedere a cosa serve.</div></section>
-      <section class="card">
-        <h2>Programma <span class="score" id="score"></span></h2>
-        <ol class="prog" id="prog"></ol>
-        <p class="note">Mappa: EPROM a <code>00000000h</code>, porte di input a <code>20000000h</code>, RAM a <code>FFFF0000h</code>. Opcode del DLX di Hennessy-Patterson. DLX sequenziale: ogni istruzione attraversa IF, ID, EX, MEM, WB. Il mux indirizzi sceglie PC nel fetch e ALU nella fase MEM.</p>
-      </section>
+    <section class="card">
+      <h2>Programma <span class="score" id="s-score"></span></h2>
+      <ol class="prog" id="s-list"></ol>
+      <p class="note">Mappa: EPROM a <code>00000000h</code>, porte di input a <code>20000000h</code>, RAM a <code>FFFF0000h</code>. Opcode del DLX di Hennessy-Patterson. Ogni riga del simulatore è uno <b>stato del controller</b>, cioè un clock.</p>
+    </section>
+  </div>
+</section>
+
+<!-- ============ PIPELINE ============ -->
+<section id="v-pipe" class="band" style="padding-top:0" hidden>
+  <div class="ctrls">
+    <button id="p-back" aria-label="Clock precedente">◀ Indietro</button>
+    <button id="p-next" class="pri">Avanza clock ▶</button>
+    <button id="p-reset">Reset</button>
+    <select id="p-prog" aria-label="Programma"></select>
+    <select id="p-mode" aria-label="Modalità"><option value="0">Passo-passo</option><option value="2200">Auto lento</option><option value="1100">Auto medio</option><option value="550">Auto veloce</option></select>
+    <button id="p-play" hidden>⏸ Pausa</button>
+    <span class="cnt" id="p-cnt"></span>
+  </div>
+  <div class="ctrls">
+    <label class="tog"><input type="checkbox" id="p-quiz"><span class="sw"></span>Quiz</label>
+    <label class="tog"><input type="checkbox" id="p-fu"><span class="sw"></span>Forwarding unit</label>
+    <label class="tog"><input type="checkbox" id="p-cs"><span class="sw"></span>Split-cycle</label>
+    <label class="tog" id="p-r4w"><input type="checkbox" id="p-r4" checked><span class="sw"></span>R4 = 0 (salto preso)</label>
+    <label class="tog"><input type="checkbox" id="p-exm"><span class="sw"></span>Compila tu il diagramma</label>
+  </div>
+  <div class="card" id="p-ed" style="margin-top:14px" hidden>
+    <div class="ed">
+      <div>
+        <h2>Il tuo programma</h2>
+        <textarea id="p-src" spellcheck="false" aria-label="Codice DLX"></textarea>
+        <p class="err" id="p-err"></p>
+      </div>
+      <div class="txt">
+        <h3>Come si scrive</h3>
+        <p>Una istruzione per riga, commenti dopo <code>;</code>. Etichette con <code>nome:</code>. Numeri in decimale, <code>0x1F</code> o <code>1Fh</code>.</p>
+        <p><code>ADD R1, R2, R3</code> · <code>SUB AND OR XOR SEQ SNE SLT SGT SLE SGE</code><br><code>ADDI R1, R2, 8</code> · <code>SUBI ANDI ORI XORI</code> · <code>LHI R1, 1234h</code><br><code>LW R1, 20h(R2)</code> · <code>LB LBU LH LHU</code><br><code>SW 10h(R1), R2</code> (va bene anche <code>SW R2, 10h(R1)</code>) · <code>SB SH</code><br><code>BEQZ R1, etichetta</code> · <code>BNEZ</code> · <code>NOP</code></p>
+        <p>Il simulatore calcola subito gli stalli nei tre casi d'esame. Con <b>Compila tu il diagramma</b> puoi fare l'esercizio e farti correggere.</p>
+      </div>
     </div>
   </div>
+  <div class="stats" id="p-stats"></div>
+  <p class="cases" id="p-cases"></p>
+  <div class="figwrap" id="p-wrap">
+    <div class="scroll"><svg class="fig" id="p-fig" viewBox="0 0 1280 670" role="img" aria-label="Datapath del DLX pipelined a 5 stadi"></svg></div>
+  </div>
+  <p class="hint mob">↔ Scorri lo schema in orizzontale per vederlo tutto.</p>
+  <p class="hint">Datapath delle slide 08: 5 stadi separati dai registri di pipeline (IF/ID, ID/EX, EX/MEM, MEM/WB), IM e DM separate (Harvard), forwarding unit, rilevazione alee. In fondo a ogni stadio la micro-operazione che sta facendo. Ogni registro di pipeline mostra i valori <b>scritti alla fine di questo clock</b> dallo stadio alla sua sinistra.</p>
+  <div class="card" style="margin-top:14px">
+    <h2 id="p-tth">Diagramma temporale</h2>
+    <div class="gbar" id="p-gbar" hidden>
+      <button id="p-gchk" class="pri">Correggi</button>
+      <button id="p-gsol">Mostra soluzione</button>
+      <button id="p-gclr">Svuota</button>
+      <span class="score" id="p-gres"></span>
+    </div>
+    <div class="scrollx" id="p-tt"></div>
+    <p class="note" id="p-ttn"><b>S</b> = stallo. Righe barrate = istruzioni eliminate dal salto (diventano NOP). Tocca il numero di un clock per andarci.</p>
+  </div>
+  <div class="grid">
+    <section class="card">
+      <div id="p-qz"></div>
+      <h2 id="p-ttl"></h2>
+      <div class="txt" id="p-txt"></div>
+    </section>
+    <section class="card">
+      <h2>Programma <span class="score" id="p-score"></span></h2>
+      <ol class="prog" id="p-list"></ol>
+      <p class="note" id="p-note"></p>
+    </section>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h2>Branch prediction: BTB a 1 bit contro 2 bit</h2>
+    <p class="sub" style="margin-bottom:10px">Due cicli annidati: il branch in fondo al ciclo interno è preso (T) a ogni giro tranne l'ultimo (N). Si parte con la previsione «preso» (1 bit = T, 2 bit = 11).</p>
+    <div class="ctrls" style="margin-top:0">
+      <label class="ports">Giri del ciclo interno <input type="number" id="b-n" min="2" max="12" value="4"></label>
+      <label class="ports">Giri del ciclo esterno <input type="number" id="b-m" min="1" max="6" value="3"></label>
+    </div>
+    <div class="stats" id="b-stats"></div>
+    <div class="scrollx" style="margin-top:12px"><table class="btb" id="b-tab"></table></div>
+    <p class="note">Con 1 bit ogni uscita dal ciclo interno costa <b>2 errori</b>: all'uscita (previsto T, era N) e al rientro (previsto N, era T). Con 2 bit (contatore a saturazione 11, 10 → T; 01, 00 → N) servono due errori di fila per cambiare previsione: <b>1 errore</b> per giro esterno.</p>
+  </div>
+</section>
+
+<!-- ============ CONFRONTO ============ -->
+<section id="v-cmp" class="band" style="padding-top:0" hidden>
+  <div class="card" style="margin-top:16px">
+    <h2>Due architetture totalmente diverse per la stessa ISA</h2>
+    <p class="sub" style="margin-bottom:10px">Le istruzioni sono le stesse; cambia come l'hardware le esegue. Le 5 fasi (IF, ID, EX, MEM, WB) esistono in entrambi, ma nel sequenziale sono <b>stati del controller</b> uno dopo l'altro, nel pipelined sono <b>stadi fisici</b> che lavorano tutti insieme su istruzioni diverse.</p>
+    <div class="scrollx"><table class="cmp">
+      <thead><tr><th></th><th>Sequenziale (slide 07)</th><th>Pipelined (slide 08)</th></tr></thead>
+      <tbody>
+        <tr><td>Istruzioni in esecuzione</td><td>Una alla volta</td><td>Fino a 5, una per stadio</td></tr>
+        <tr><td>Clock per istruzione</td><td>Da 3 a 8 (uno per stato, più i wait)</td><td>1 a regime (CPI ideale = 1), più gli stalli</td></tr>
+        <tr><td>Unità di controllo</td><td>RSS centrale con diagramma degli stati</td><td>Distribuita: i controlli viaggiano con l'istruzione nei registri di pipeline</td></tr>
+        <tr><td>Registri interni</td><td>MAR, MDR, IR, A, B, C, TEMP, IAR</td><td>IF/ID (IR1, PC1), ID/EX (A, B, IR2, PC2), EX/MEM (X, SMDR, IR3), MEM/WB (Y, LMDR, IR4)</td></tr>
+        <tr><td>Collegamenti interni</td><td>Tre bus condivisi S1, S2, Dest con tri-state</td><td>Percorsi dedicati da uno stadio al successivo</td></tr>
+        <tr><td>PC + 4</td><td>Con la ALU, in decode</td><td>Sommatore o contatore dedicato, in IF</td></tr>
+        <tr><td>Memoria</td><td>Una sola, tramite MAR, MDR e il bus di sistema</td><td>IM e DM separate (Harvard), cache on-chip: due accessi per clock</td></tr>
+        <tr><td>Memoria lenta</td><td>READY = 0: stati di wait</td><td>Cache miss: stallo della pipeline</td></tr>
+        <tr><td>Alee</td><td>Non esistono: un'istruzione finisce prima della successiva</td><td>Strutturali, di dato (forwarding, stalli, split-cycle, delayed load), di controllo (flush, delayed branch, BTB)</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h2>Quanti clock servono per gli stessi programmi</h2>
+    <p class="sub" id="c-cfg" style="margin-bottom:10px"></p>
+    <div class="scrollx"><table class="cmp num" id="c-tab"></table></div>
+    <p class="note">Due conteggi per il sequenziale. <b>Stati del simulatore</b>: i clock del diagramma degli stati come li vedi nella scheda Sequenziale, senza wait (fetch e decode 3, poi ALU 3, LHI 2, load 4, store 3, branch preso 1 e non preso 0). <b>Tabella delle slide 07</b>: cicli più 1 wait per ogni accesso in memoria (load 8, store 7, ALU 6, branch preso 5 e non preso 4). Differiscono di qualche clock perché contano cose diverse. Con programmi così corti il rapporto è basso perché pesano i 4 clock di riempimento della pipeline: su programmi lunghi tende al rapporto tra i CPI, cioè circa 5–6 clock per istruzione nel sequenziale contro poco più di 1 nel pipelined. Il pipelined usa le impostazioni attuali della scheda Pipelined (forwarding e split-cycle).</p>
+  </div>
+</section>
 </main>
+<div id="cardslot"></div>
+
 <script>
 {
-const DEMOS=[[
- {addr:0x0,txt:'LHI R20, 2000h',hex:0x3C142000,k:'lhi',rd:20,imm:0x2000,why:'Prepara la base I/O 20000000h'},
- {addr:0x4,txt:'LH R21, 0(R20)',hex:0x86950000,k:'ld',sz:2,rs1:20,rd:21,imm:0,why:'Halfword signed dalle porte: BE1, BE0, MEMRD'},
- {addr:0x8,txt:'LHI R22, FFFFh',hex:0x3C16FFFF,k:'lhi',rd:22,imm:0xFFFF,why:'Prepara la base RAM FFFF0000h'},
- {addr:0xC,txt:'SW R21, 1000h(R22)',hex:0xAEC51000,k:'st',sz:4,rs1:22,rs2:21,imm:0x1000,why:'Word a FFFF1000h: tutti i BE, MEMWR'}],[
- {addr:0x0,txt:'LHI R20, 2000h',hex:0x3C142000,k:'lhi',rd:20,imm:0x2000,why:'Prepara la base I/O 20000000h'},
- {addr:0x4,txt:'LB R21, 1(R20)',hex:0x82950001,k:'ld',sz:1,rs1:20,rd:21,imm:1,why:'Byte signed a offset 01: solo BE1, un solo tri-state'},
- {addr:0x8,txt:'LHI R22, FFFFh',hex:0x3C16FFFF,k:'lhi',rd:22,imm:0xFFFF,why:'Prepara la base RAM FFFF0000h'},
- {addr:0xC,txt:'SB R21, 1003h(R22)',hex:0xA2D51003,k:'st',sz:1,rs1:22,rs2:21,imm:0x1003,why:'Byte a offset 11: solo BE3, il byte va sulla corsia alta'}]];
-const PH=['IF','ID','EX','MEM','WB'],PHN=['Fetch','Decode','Execute / ALU','Memory / I/O','Write back'];
-const LN=['BD[7..0]','BD[15..8]','BD[23..16]','BD[31..24]'],LANE=[635,610,585,560];
+/* ================= utilità ================= */
+const $=id=>document.getElementById(id);
 const h8=x=>x==null?'????????':(x>>>0).toString(16).toUpperCase().padStart(8,'0');
-const h2=x=>x==null?'??':x.toString(16).toUpperCase().padStart(2,'0');
-const sx16=v=>(v&0x8000?(v|0xFFFF0000):v)>>>0, sx8=v=>(v&0x80?(v|0xFFFFFF00):v)>>>0;
+const h2=x=>x==null?'??':(x&255).toString(16).toUpperCase().padStart(2,'0');
+const hx=v=>{if((v&0xFFFF)===0)return'0';const s=(v&0xFFFF).toString(16).toUpperCase();return(/^[A-F]/.test(s)?'0'+s:s)+'h'};
+const baS=a=>h8((a&~3)>>>0)+'h', b2=a=>(a&3).toString(2).padStart(2,'0');
+const sx16=v=>(v&0x8000?(v|0xFFFF0000):v&0xFFFF)>>>0, sx8=v=>(v&0x80?(v|0xFFFFFF00):v&0xFF)>>>0;
 const byte=(x,j)=>(x>>>(8*j))&255;
 const beName=be=>be.every(x=>x)?'BE3..BE0':[3,2,1,0].filter(j=>be[j]).map(j=>'BE'+j).join(', ')||'nessuno';
-const szN={1:'byte',2:'halfword',4:'word'};
-
-function step(s,k,c){
-  const P=DEMOS[c.demo],i=Math.floor((k-1)/5),ph=(k-1)%5,ins=P[i];
-  const b={ba:null,be:[0,0,0,0],rd:0,wr:0,lanes:[null,null,null,null],drv:'',triL:0,triH:0};
-  const v={i,ph,bus:b,p:[],mux:null,w:[],r:[],t:'',rtl:''};
-  const R=n=>s.regs[n]===undefined?null:s.regs[n];
-  if(ph===0){
-    b.ba=s.pc;b.be=[1,1,1,1];b.rd=1;b.drv='EPROM';for(let j=0;j<4;j++)b.lanes[j]=byte(ins.hex,j);
-    v.mux='PC';v.p=['pc-mux','bd-ir'];v.w=['PC','IR'];v.rtl=`BA ← PC = ${h8(s.pc)}h · IR ← M[BA] · PC ← PC + 4`;
-    v.t=`<p>Il <b>mux indirizzi</b> seleziona il <b>PC</b>. Il decoder vede BA31..28 = 0 e attiva <b>CS_EPROM</b>; con <b>MEMRD</b> e tutti i <b>BE</b> la EPROM mette l'istruzione su tutte e 4 le corsie di BD.</p><p>A fine fase <b>IR</b> = ${h8(ins.hex)}h e <b>PC</b> = ${h8(s.pc+4)}h.</p>`;
-    s.ir=ins;s.pc+=4;
-  }else if(ph===1){
-    const r1=ins.rs1||0,f2=ins.k==='st'?ins.rs2:ins.rd;s.A=R(r1);s.B=R(f2);s.imm=sx16(ins.imm);
-    v.p=['rf-a','rf-b','ir-imm'];v.r=[r1,f2];v.w=['A','B','IMM'];v.rtl=`A ← R${r1} · B ← R${f2} · Imm ← sext(IR15..0) = ${h8(s.imm)}h`;
-    v.t=`<p>Decodifica dell'opcode e, <b>in parallelo e in modo speculativo</b>, lettura dei registri indicati dai campi fissi: A = ${h8(s.A)}h, B = ${h8(s.B)}h.</p><p>${ins.k==='ld'?'B non serve a questa load: il valore si ignora.':ins.k==='st'?'B contiene il dato da scrivere in memoria.':'LHI usa solo l\'immediato: A e B si ignorano.'} Bus esterni tutti in alta impedenza.</p>`;
-  }else if(ph===2){
-    if(ins.k==='lhi'){s.alu=(ins.imm<<16)>>>0;v.p=['imm-alu'];v.rtl=`ALU ← IR15..0 ## 0000h = ${h8(s.alu)}h`;
-      v.t='<p>L\'ALU mette l\'immediato nei <b>16 bit alti</b> e azzera i bassi. LHI non accede alla memoria: è un\'istruzione ALU.</p>'}
-    else{s.alu=(s.A+s.imm)>>>0;v.p=['a-alu','imm-alu'];v.rtl=`ALU ← A + Imm = ${h8(s.A)}h + ${h8(s.imm)}h = ${h8(s.alu)}h`;
-      v.t=`<p>Indirizzo <b>base + spiazzamento</b>. Offset nella word = ${(s.alu&3).toString(2).padStart(2,'0')} (BA1 BA0, che non escono dalla CPU: diventano BE).</p>`}
-    v.w=['ALU'];
-  }else if(ph===3){
-    if(ins.k==='lhi'){v.rtl='—';v.t='<p>LHI non ha fase di memoria: nessun ciclo di bus.</p>'}
-    else{
-      const o=s.alu&3;b.ba=s.alu;for(let j=o;j<o+ins.sz;j++)b.be[j]=1;v.mux='ALU';
-      if(ins.k==='ld'){
-        b.rd=1;b.drv='IN';b.triL=b.be[0];b.triH=b.be[1];
-        if(b.triL)b.lanes[0]=c.swap?c.pb:c.pa; if(b.triH)b.lanes[1]=c.swap?c.pa:c.pb;
-        let raw=0;for(let j=0;j<ins.sz;j++)raw|=(b.lanes[o+j]||0)<<(8*j);
-        s.lmd=ins.sz===1?sx8(raw):sx16(raw);const top=ins.sz===1?raw>>7:raw>>15;
-        v.p=['alu-mux','bd-lmd'];v.w=['LMD'];v.rtl=`BA ← ALU · ${beName(b.be)} · LMD ← sext(${ins.sz===1?h2(raw):h2(raw>>8)+h2(raw&255)}h) = ${h8(s.lmd)}h`;
-        v.t=`<p>Il mux ora seleziona l'<b>ALU</b>. ${szN[ins.sz]} a offset ${o.toString(2).padStart(2,'0')} → <b>${beName(b.be)}</b>. Il decoder attiva <b>CS_INPUT</b>; si accendono solo i tri-state con il loro BE attivo (OE = CS·MEMRD·BE): ${[b.triL?'basso':'',b.triH?'alto':''].filter(x=>x).join(' e ')}. Le altre corsie restano in <b>alta impedenza</b>.</p><p>${o?`Dentro la CPU un mux riporta il byte dalla corsia ${LN[o]} ai bit 7..0. `:''}Bit di segno = ${top}: estensione con ${top?'1':'0'} → <b>LMD = ${h8(s.lmd)}h</b>.</p>`;
-      }else{
-        b.wr=1;b.drv='CPU';for(let j=0;j<ins.sz;j++){b.lanes[o+j]=byte(s.B,j);s.ram[(s.alu+j)>>>0]=byte(s.B,j)}
-        v.p=['alu-mux','b-bd'];v.rtl=`BA ← ALU · ${beName(b.be)} · M[BA] ← ${ins.sz===4?'B':'B7..0'}`;
-        v.t=`<p>${szN[ins.sz]} a offset ${o.toString(2).padStart(2,'0')} → <b>${beName(b.be)}</b>, <b>MEMWR</b>. Il decoder attiva <b>CS_RAM</b> (BA31..16 = FFFFh); dentro la RAM BA15..2 sceglie la riga e i BE quali banchi scrivere.</p><p>${o?`La CPU <b>sposta</b> il byte basso di B (${h2(byte(s.B,0))}h) sulla corsia ${LN[o]}: è lì che si trova il banco di offset ${o.toString(2).padStart(2,'0')}. `:''}Le porte di input hanno i tri-state spenti e non disturbano il bus.</p>`;
-      }
-    }
-  }else{
-    if(ins.k==='lhi'){s.regs[ins.rd]=s.alu;v.p=['alu-rf'];v.w=[ins.rd];v.rtl=`R${ins.rd} ← ALU = ${h8(s.alu)}h`;v.t=`<p>Il risultato dell'ALU viene scritto nel register file.</p>`}
-    else if(ins.k==='ld'){s.regs[ins.rd]=s.lmd;v.p=['lmd-rf'];v.w=[ins.rd];v.rtl=`R${ins.rd} ← LMD = ${h8(s.lmd)}h`;v.t='<p>Il dato letto dalle porte, già esteso, entra nel register file.</p>'}
-    else{v.rtl='—';v.t='<p>Le store non scrivono registri: fase vuota.</p>'}
-  }
-  return v;
-}
-function sim(n,c){const s={pc:0,ir:null,regs:{0:0},A:null,B:null,imm:null,alu:null,lmd:null,ram:{}};let v=null;for(let k=1;k<=n;k++)v=step(s,k,c);return{s,v}}
-function cs(b){const on=(b.rd||b.wr)&&b.ba!=null,a=b.ba>>>0;return{e:on&&(a>>>28)===0,r:on&&(a>>>16)===0xFFFF,i:on&&(a>>>29)===1&&!!b.rd}}
-
-/* quiz: domanda sul passo n+1, posta prima di avanzare */
-function shuffle(a,seed){return a.map((x,j)=>[x,(j*7+seed*13)%11]).sort((p,q)=>p[1]-q[1]).map(x=>x[0])}
-function quiz(n,c){
-  if(n>=40)return null;const P=DEMOS[c.demo],cur=sim(n,c),nx=sim(n+1,c),v=nx.v,ins=P[v.i],s0=cur.s;
-  const mk=(q,ok,bad,why)=>{const o=[...new Set([ok,...bad])].slice(0,4);return{q,opts:shuffle(o,n),ok,why}};
-  if(v.ph===0&&v.i===0)return mk('Fetch: quale chip select si attiva?','CS_EPROM',['CS_RAM','CS_INPUT','nessuno'],'Le istruzioni stanno nella EPROM, a partire da 00000000h.');
-  if(v.ph===0)return mk(`Dopo il fetch di ${ins.txt}, quanto vale il PC?`,h8(s0.pc+4)+'h',[h8(s0.pc+1)+'h',h8(s0.pc)+'h',h8(s0.pc+8)+'h'],'Le istruzioni sono word allineate: PC + 4.');
-  if(v.ph===1){const ok=h8(sx16(ins.imm))+'h';return mk(`Decode di ${ins.txt}: quanto vale l'immediato esteso?`,ok,[h8(ins.imm)+'h',h8((ins.imm<<16)>>>0)+'h',h8((ins.imm|0xFFFF0000)>>>0)+'h'],'Gli immediati di load, store, ADDI e LHI sono estesi con segno: si replica il bit 15.')}
-  if(v.ph===2&&ins.k==='lhi')return mk('Cosa calcola l\'ALU per la LHI?',h8(nx.s.alu)+'h',[h8(sx16(ins.imm))+'h',h8(ins.imm)+'h','00000000h'],'LHI mette l\'immediato nei 16 bit alti: Imm ## 0000h.');
-  if(v.ph===2)return mk(`Quale indirizzo calcola l'ALU per ${ins.txt}?`,h8(nx.s.alu)+'h',[h8(s0.A)+'h',h8(sx16(ins.imm))+'h',h8((nx.s.alu+4)>>>0)+'h'],'Base + spiazzamento: RS1 + immediato esteso.');
-  if(v.ph===3&&ins.k!=='lhi'){const ok=beName(v.bus.be);return mk(`${ins.txt}: quali BE si attivano?`,ok,['BE3..BE0','BE1, BE0','BE0','BE3','BE1','BE3, BE2'].filter(x=>x!==ok).slice(0,3),'Offset (BA1 BA0) + dimensione del dato (dall\'opcode) → BE.')}
-  if(v.ph===4&&ins.k==='ld'){const ok=h8(nx.s.lmd)+'h',raw=ins.sz===1?nx.s.lmd&255:nx.s.lmd&0xFFFF;
-    return mk(`Che valore finisce in R${ins.rd}?`,ok,[h8(raw)+'h',h8((ins.sz===1?raw|0xFFFFFF00:raw|0xFFFF0000)>>>0)+'h',h8(ins.sz===1?raw<<24:raw<<16)+'h'],'Load signed: il dato letto si estende con il suo bit più alto.')}
-  return null;
-}
-
+const LN=['BD[7..0]','BD[15..8]','BD[23..16]','BD[31..24]'];
 const W=(pts,on,kind,hz,dim)=>`<polyline class="w${on?' on '+kind:hz?' hz':''}${dim?' '+kind+' dim':''}" points="${pts}"/>`+(on&&!dim?`<polyline class="flow" points="${pts}"/>`:'');
-const T=(x,y,s,c='t',a='start')=>`<text x="${x}" y="${y}" class="${c}" text-anchor="${a}">${s}</text>`;
-const B=(x,y,w,h,c='')=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" class="bx ${c}"/>`;
-const G=(k,inner)=>`<g class="hit${pick===k?' pick':''}" data-k="${k}">${inner}</g>`;
-const IP={'pc-mux':['190,97 445,97','addr'],'alu-mux':['435,350 441,350 441,135 445,135','addr'],
- 'bd-ir':['470,560 245,560 245,210','data'],'bd-lmd':['470,600 310,600 310,510','data'],
- 'b-bd':['350,345 365,345 365,620 470,620','data'],'rf-a':['230,288 260,288','data'],'rf-b':['230,338 260,338','data'],
- 'ir-imm':['300,185 354,185 354,398 350,398','data'],'a-alu':['350,288 360,288 360,305 370,305','data'],
- 'imm-alu':['350,398 370,398','data'],'alu-rf':['402,408 402,452 200,452 200,430','data'],'lmd-rf':['260,490 140,490 140,430','data']};
-let pick='';
+const T=(x,y,s,c='t',a='start',fill)=>`<text x="${x}" y="${y}" class="${c}" text-anchor="${a}"${fill?` fill="${fill}"`:''}>${s}</text>`;
+const R=(x,y,w,h,c='')=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" class="bx ${c}"/>`;
+let PICK={m:'',k:''};
+const G=(m,k,inner)=>`<g class="hit${PICK.m===m&&PICK.k===k?' pick':''}" data-k="${k}">${inner}</g>`;
+function shuf(a,seed){return a.map((x,j)=>[x,((j+1)*7919+seed*104729)%1009]).sort((p,q)=>p[1]-q[1]).map(x=>x[0])}
 
-function draw(st,c){
-  const P=DEMOS[c.demo],{s,v}=st,b=v?v.bus:{ba:null,be:[0,0,0,0],rd:0,wr:0,lanes:[null,null,null,null],drv:'',triL:0,triH:0};
-  const C=cs(b),pth=v?v.p:[],wr=v?v.w:[],rr=v?v.r:[],on=b.ba!=null,any=b.be.some(x=>x);let o='';
-  o+=`<rect x="20" y="40" width="460" height="620" rx="16" class="cpu"/>`+T(36,32,'CPU DLX · datapath');
-  for(const k in IP)o+=W(IP[k][0],pth.includes(k),IP[k][1]);
-  o+=W('470,550 470,645',b.drv!=='','data')+T(462,544,'porta BD','s','end');
-  o+=G('pc',B(50,75,140,45,wr.includes('PC')?'wr':'')+T(60,92,'PC','s')+T(60,112,h8(s.pc)+'h','v'));
-  o+=G('ir',B(50,160,250,50,wr.includes('IR')?'wr':'')+T(60,177,'IR','s')+T(60,198,s.ir?h8(s.ir.hex)+'h':'????????','v')+T(290,198,s.ir?s.ir.txt:'','vs','end'));
-  let rf=B(50,240,180,190)+T(60,260,'Register File','t');
-  [0,20,21,22].forEach((r,j)=>{const y=285+j*30,cl=wr.includes(r)?'wr':rr.includes(r)?'rd':'';
-    rf+=`<rect x="56" y="${y-17}" width="168" height="25" rx="4" class="row ${cl}"/>`+T(64,y,'R'+r,'vs')+T(216,y,h8(s.regs[r])+'h','v','end')});
-  o+=G('rf',rf+T(140,422,'2 porte lettura · 1 scrittura','s','middle'));
-  o+=G('ab',B(260,270,90,36,wr.includes('A')?'wr':'')+T(266,284,'A','s')+T(344,299,h8(s.A),'vs','end')+B(260,320,90,36,wr.includes('B')?'wr':'')+T(266,334,'B','s')+T(344,349,h8(s.B),'vs','end'));
-  o+=G('imm',B(260,380,90,36,wr.includes('IMM')?'wr':'')+T(266,394,'Imm est.','s')+T(344,409,h8(s.imm),'vs','end'));
-  o+=G('alu',`<polygon points="370,280 435,305 435,395 370,420 370,365 385,350 370,335" class="bx ${wr.includes('ALU')?'wr':''}"/>`+T(410,355,'ALU','t','middle')+T(404,272,h8(s.alu)+'h','vs','middle'));
-  o+=G('lmd',B(260,470,95,40,wr.includes('LMD')?'wr':'')+T(266,485,'LMD','s')+T(349,502,h8(s.lmd),'vs','end'));
-  o+=G('mux',`<polygon points="445,80 470,92 470,138 445,150" class="bx ${v&&v.mux?'wr':''}"/>`+T(457,70,'MUX ind.','s','middle')+T(436,170,'sel: '+(v&&v.mux?v.mux:'—'),'vs','end'));
-  let bus=W('470,115 1265,115',on,'addr')+T(488,108,'BA[31..0] = '+(on?h8(b.ba)+'h':'Z'),'lbl'+(on?'" fill="var(--addr)':''));
-  bus+=W('480,145 1265,145',any,'ctl')+T(488,138,'BE[3..0] = '+b.be.slice().reverse().join(''),'lbl'+(any?'" fill="var(--ctl)':''));
-  bus+=W('480,175 1265,175',b.rd,'ctl')+T(488,168,'MEMRD'+(b.rd?' = 1':''),'lbl'+(b.rd?'" fill="var(--ctl)':''));
-  bus+=W('480,198 1265,198',b.wr,'ctl')+T(1090,191,'MEMWR'+(b.wr?' = 1':''),'lbl'+(b.wr?'" fill="var(--ctl)':''));
-  for(let j=0;j<4;j++){const x=b.lanes[j];bus+=W(`470,${LANE[j]} 1265,${LANE[j]}`,x!=null,'data',x==null)+T(488,LANE[j]-5,LN[j]+' = '+(x!=null?h2(x)+'h':'Z'),'lbl'+(x!=null?'" fill="var(--data)':'" fill="var(--hiz)'))}
-  o+=G('bus',bus);
-  let d=W('580,115 580,230',on,'addr')+W('610,145 610,230',any,'ctl')+W('640,175 640,230',b.rd||b.wr,'ctl');
-  d+=B(510,230,150,150,(C.e||C.r||C.i)?'sel':'')+T(522,250,'Decoder 1° livello')+T(522,266,'legge BA31..16, MEMRD','s');
-  [['CS_EPROM','BA31..28 = 0',C.e],['CS_RAM','BA31..16 = FFFFh',C.r],['CS_INPUT','BA31..29=001 · MEMRD',C.i]].forEach(([n,e,a],j)=>{
-    const y=292+j*30;d+=`<circle cx="530" cy="${y-4}" r="6" class="led ${a?'on':''}"/>`+T(542,y,n,'vs'+(a?'" fill="var(--cs)':''))+T(542,y+13,e,'s')});
-  o+=G('dec',d);
-  o+=W('530,380 530,410 830,410 830,390',C.e,'cs')+W('560,380 560,425 1015,425 1015,390',C.r,'cs')+W('590,380 590,442 1080,442 1080,470 1205,470',C.i,'cs');
-  let e=W('720,115 720,230',C.e,'addr')+W('840,175 840,230',C.e&&b.rd,'ctl');
-  [735,755,775,795].forEach((x,n)=>{e+=W(`${x},390 ${x},${LANE[3-n]}`,b.drv==='EPROM','data',b.drv!=='EPROM')});
-  e+=B(700,230,155,160,C.e?'sel':'')+T(712,250,'EPROM · 00000000h')+T(712,265,'2° liv.: A ← BA15..2','s');
-  P.forEach((p,j)=>{const y=290+j*22,hl=C.e&&b.ba===p.addr;e+=`<rect x="706" y="${y-15}" width="143" height="20" rx="4" class="row ${hl?'rd':''}"/>`+T(712,y,h8(p.addr).slice(4),'vs')+T(843,y,h8(p.hex),'v','end')});
-  o+=G('eprom',e);
-  let r=W('905,115 905,230',C.r,'addr')+W('955,145 955,230',C.r,'ctl')+W('1000,175 1000,230',C.r&&b.rd,'ctl')+W('1025,198 1025,230',C.r&&b.wr,'ctl');
-  [920,940,960,980].forEach((x,n)=>{const j=3-n,a=C.r&&b.drv==='CPU'&&b.be[j];r+=W(`${x},390 ${x},${LANE[j]}`,a,'data',!a)});
-  r+=B(885,230,155,160,C.r?'sel':'')+T(897,250,'RAM · FFFF0000h')+T(897,265,'riga ← BA15..2 · banco ← BE','s');
-  r+=T(1034,284,'b3 b2 b1 b0','vs','end');
-  [0xFFFF0FFC,0xFFFF1000,0xFFFF1004].forEach((a,j)=>{const y=306+j*24,hl=C.r&&(b.ba&~3)>>>0===a;
-    r+=`<rect x="891" y="${y-15}" width="143" height="20" rx="4" class="row ${hl?'wr':''}"/>`+T(897,y,h8(a).slice(4),'vs')+T(1028,y,[3,2,1,0].map(q=>h2(s.ram[(a+q)>>>0])).join(' '),'v','end')});
-  o+=G('ram',r);
-  let io=B(1070,230,195,290,C.i?'sel':'')+T(1082,250,'Porte di input · 20000000h')+T(1082,266,'tri-state: OE = CS·MEMRD·BE','s');
-  const aP=c.swap?'1125,344 1125,360 1215,410 1215,455':'1125,344 1125,455',bP=c.swap?'1215,344 1215,360 1125,410 1125,455':'1215,344 1215,455';
-  io+=W('1125,282 1125,300',1,'data',0,1)+W('1215,282 1215,300',1,'data',0,1)+W(aP,1,'data',0,1)+W(bP,1,'data',0,1);
-  io+=B(1090,300,70,44)+T(1125,317,'PORTA A','s','middle')+T(1125,336,h2(c.pa)+'h','v','middle');
-  io+=B(1180,300,70,44)+T(1215,317,'PORTA B','s','middle')+T(1215,336,h2(c.pb)+'h','v','middle');
-  io+=T(1125,277,'cavo est.','s','middle')+T(1215,277,'cavo est.','s','middle');
-  io+=W('1125,490 1125,635',b.triL,'data',!b.triL)+W('1215,490 1215,610',b.triH,'data',!b.triH);
-  io+=`<polygon points="1105,455 1145,455 1125,490" class="tri ${b.triL?'on':''}"/><polygon points="1195,455 1235,455 1215,490" class="tri ${b.triH?'on':''}"/>`;
-  io+=T(1082,505,'OE_L = '+b.triL+(b.triL?'':' → Z'),'vs')+T(1178,505,'OE_H = '+b.triH+(b.triH?'':' → Z'),'vs')+T(1082,440,'SWAP = '+(c.swap?'1':'0'),'vs'+(c.swap?'" fill="var(--data)':''));
-  o+=G('io',io);
-  [['indirizzi','addr',0],['dati','data',0],['controllo','ctl',0],['chip select','cs',0],['alta impedenza (Z)','',1]].forEach(([n,k,hz],j)=>{
-    const x=490+j*150;o+=`<polyline class="w ${hz?'hz':'on '+k}" points="${x},680 ${x+30},680"/>`+T(x+38,684,n,'s')});
-  $('fig').innerHTML=o;
+/* ================= ISA ================= */
+const OPS={ADD:[0,0x20],SUB:[0,0x22],AND:[0,0x24],OR:[0,0x25],XOR:[0,0x26],SEQ:[0,0x28],SNE:[0,0x29],SLT:[0,0x2A],SGT:[0,0x2B],SLE:[0,0x2C],SGE:[0,0x2D],
+ ADDI:[0x08],SUBI:[0x0A],ANDI:[0x0C],ORI:[0x0D],XORI:[0x0E],LHI:[0x0F],RFE:[0x10],NOP:[0],
+ LB:[0x20],LH:[0x21],LW:[0x23],LBU:[0x24],LHU:[0x25],SB:[0x28],SH:[0x29],SW:[0x2B],BEQZ:[0x04],BNEZ:[0x05]};
+const SZ={LB:1,LBU:1,LH:2,LHU:2,LW:4,SB:1,SH:2,SW:4};
+const ALUR=['ADD','SUB','AND','OR','XOR','SEQ','SNE','SLT','SGT','SLE','SGE'],ALUI=['ADDI','SUBI','ANDI','ORI','XORI'],ZEXT=['ANDI','ORI','XORI'];
+function kind(m){if(ALUR.includes(m))return'alur';if(ALUI.includes(m))return'alui';if(m==='LHI')return'lhi';if(m==='RFE')return'rfe';if(m==='NOP')return'nop';if(['LB','LBU','LH','LHU','LW'].includes(m))return'load';if(['SB','SH','SW'].includes(m))return'store';return'br'}
+function enc(x){const o=OPS[x.m];if(x.k==='nop')return 0;if(x.k==='rfe')return(o[0]<<26)>>>0;if(x.k==='alur')return((o[0]<<26)|(x.rs1<<21)|(x.rs2<<16)|(x.rd<<11)|o[1])>>>0;
+  const f2=x.k==='store'?x.rs2:x.k==='br'?0:x.rd;return((o[0]<<26)|((x.rs1||0)<<21)|((f2||0)<<16)|(x.imm&0xFFFF))>>>0}
+function txt(x){const k=x.k;if(k==='nop'||k==='rfe')return x.m;
+  if(k==='alur')return`${x.m} R${x.rd}, R${x.rs1}, R${x.rs2}`;if(k==='alui')return`${x.m} R${x.rd}, R${x.rs1}, ${hx(x.imm)}`;
+  if(k==='lhi')return`LHI R${x.rd}, ${hx(x.imm)}`;if(k==='load')return`${x.m} R${x.rd}, ${hx(x.imm)}(R${x.rs1})`;
+  if(k==='store')return`${x.m} R${x.rs2}, ${hx(x.imm)}(R${x.rs1})`;return`${x.m} R${x.rs1}, ${hx(x.imm)}`}
+function mk(list){let a=0;return list.map(([m,o,why],i)=>{const x=Object.assign({m,why,rs1:0,rs2:0,rd:0,imm:0},o);if(o&&o.addr!=null)a=o.addr;x.k=kind(m);x.addr=a;a+=4;x.idx=i;x.hex=enc(x);x.t=txt(x);return x})}
+const srcs=x=>(({alur:[x.rs1,x.rs2],alui:[x.rs1],lhi:[],load:[x.rs1],store:[x.rs1,x.rs2],br:[x.rs1]}[x.k])||[]).filter(r=>r>0);
+const dst=x=>['alur','alui','lhi','load'].includes(x.k)&&x.rd?x.rd:null;
+const immx=x=>ZEXT.includes(x.m)?(x.imm&0xFFFF):sx16(x.imm);
+const sg=v=>v|0;
+const aop=(m,a,b)=>({ADD:a+b,ADDI:a+b,SUB:a-b,SUBI:a-b,AND:a&b,ANDI:a&b,OR:a|b,ORI:a|b,XOR:a^b,XORI:a^b,
+  SEQ:+(a===b),SNE:+(a!==b),SLT:+(sg(a)<sg(b)),SGT:+(sg(a)>sg(b)),SLE:+(sg(a)<=sg(b)),SGE:+(sg(a)>=sg(b))}[m])>>>0;
+const opSym=m=>({ADD:'+',ADDI:'+',SUB:'−',SUBI:'−',AND:'and',ANDI:'and',OR:'or',ORI:'or',XOR:'xor',XORI:'xor',SEQ:'=?',SNE:'≠?',SLT:'<?',SGT:'>?',SLE:'≤?',SGE:'≥?'}[m]);
+
+/* ================= SEQUENZIALE: motore ================= */
+const SEQP=[
+ {n:'Porta di input → RAM (LH, SW)',c:mk([['LHI',{rd:20,imm:0x2000},'Base delle porte di input: 20000000h'],['LH',{rd:21,rs1:20,imm:0},'Halfword signed dalle porte: BE1, BE0'],['LHI',{rd:22,imm:0xFFFF},'Base della RAM: FFFF0000h'],['SW',{rs2:21,rs1:22,imm:0x1000},'Word in RAM a FFFF1000h: tutti i BE']])},
+ {n:'Corsie di byte (LB, SB)',c:mk([['LHI',{rd:20,imm:0x2000},'Base delle porte di input'],['LB',{rd:21,rs1:20,imm:1},'Byte a offset 01: solo BE1, un solo tri-state'],['LHI',{rd:22,imm:0xFFFF},'Base della RAM'],['SB',{rs2:21,rs1:22,imm:0x1003},'Byte a offset 11: solo BE3, il byte va sulla corsia alta']])},
+ {n:'ALU e branch (ADDI, ADD, BEQZ)',c:mk([['ADDI',{rd:1,rs1:0,imm:5},'R1 = 5 (formato I: TEMP ← immediato)'],['ADD',{rd:2,rs1:1,rs2:1},'R2 = R1 + R1 (formato R: TEMP ← B)'],['SUBI',{rd:1,rs1:1,imm:5},'R1 = 0'],['BEQZ',{rs1:1,imm:4},'R1 = 0: salto preso, stato in più'],['ADDI',{rd:2,rs1:0,imm:0},'Saltata dal branch'],['ADDI',{rd:3,rs1:2,imm:1},'R3 = R2 + 1']])},
+ {n:'Interrupt e RFE',start:0x10,intAt:0x14,c:mk([['LHI',{rd:20,imm:0x2000,addr:0},'Handler (indirizzo 0): base delle porte. Un handler vero salverebbe prima i registri che usa'],['LB',{rd:21,rs1:20,imm:0},'Legge il dato della periferica: la lettura spegne la richiesta INT'],['RFE',{},'Ritorno: PC ← IAR e IEN ← 1'],
+   ['ADDI',{rd:1,rs1:0,imm:1,addr:0x10},'Programma principale: parte da 10h'],['ADDI',{rd:2,rs1:0,imm:2},'Prima del suo fetch arriva INT: si va all\'handler. Dopo la RFE si riparte proprio da qui (IAR = 14h)'],['ADDI',{rd:3,rs1:0,imm:3},'Il programma continua come se niente fosse']])}];
+
+function seqTrace(cfg){
+  const PG=SEQP[cfg.p],P=PG.c,S={pc:PG.start||0,ir:null,regs:{0:0},A:null,B:null,C:null,T:null,MAR:null,MDR:null,ram:{},iar:null,ien:1,int:0},out=[];let intDone=false;
+  const Rg=n=>n===0?0:(S.regs[n]===undefined?null:S.regs[n]);
+  const snap=o=>out.push(Object.assign({s:{...S,regs:{...S.regs},ram:{...S.ram}},bus:null,path:[],wr:[],rr:[],act:[],xl:null,alu:''},o));
+  function bus(addr,size,dir,data){
+    const o=addr&3,be=[0,0,0,0];for(let j=o;j<o+size;j++)be[j]=1;
+    const dev=(addr>>>28)===0?'e':(addr>>>29)===1?'i':((addr>>>16)===0xFFFF?'r':'');
+    const b={ba:addr>>>0,be,rd:dir==='rd'?1:0,wr:dir==='wr'?1:0,ready:1,lanes:[null,null,null,null],drv:'',triL:0,triH:0,cs:{e:dev==='e',r:dev==='r',i:dev==='i'&&dir==='rd'},row:(addr>>>2)};
+    if(dir==='rd'){
+      if(dev==='e'){const w=(P.find(q=>q.addr===(addr&~3))||{hex:0}).hex;b.drv='EPROM';for(let j=0;j<4;j++)if(be[j])b.lanes[j]=byte(w,j)}
+      else if(dev==='i'){b.drv='IN';b.triL=be[0];b.triH=be[1];if(b.triL)b.lanes[0]=cfg.swap?cfg.pb:cfg.pa;if(b.triH)b.lanes[1]=cfg.swap?cfg.pa:cfg.pb}
+      else if(dev==='r'){b.drv='RAM';for(let j=0;j<4;j++)if(be[j])b.lanes[j]=S.ram[((addr&~3)+j)>>>0]??0}
+    }else{b.drv='CPU';for(let k=0;k<size;k++)b.lanes[o+k]=byte(data,k)}
+    return b}
+  let g=0;
+  while(g++<40){
+    if(PG.intAt!=null&&!intDone&&S.pc===PG.intAt)S.int=1;
+    if(S.int&&S.ien){const ret=S.pc;S.iar=ret;S.pc=0;S.ien=0;intDone=true;
+      snap({i:-1,ph:'IF',st:'INTERRUPT',rtl:'IAR ← PC · PC ← 0 · IEN ← 0',alu:'S1',path:['pc>s1','alu>IAR'],wr:['iar','pc'],act:['pc','s1','alu','dest','iar','uc'],
+        txt:`<p>All'inizio del fetch il controller vede <b>INT = 1</b> e <b>IEN = 1</b>: invece di MAR ← PC entra nello stato di risposta all'interrupt. Il PC passa su S1 e attraverso la ALU va in <b>IAR</b> = ${h8(ret)}h: è l'indirizzo dell'istruzione <b>non ancora eseguita</b>, quella da cui ripartire.</p><p>Nello stesso clock <b>PC ← 0</b> (ingresso di clear del PC) e <b>IEN ← 0</b>: l'handler parte da 00000000h con gli interrupt disabilitati, così una nuova richiesta non lo interrompe. Il DLX non salva nient'altro: i registri li deve salvare l'handler.</p>`});continue}
+    const x=P.find(q=>q.addr===S.pc);if(!x)break;const i=x.idx;
+    /* FETCH 1 */
+    S.MAR=S.pc;
+    snap({i,ph:'IF',st:'FETCH 1',rtl:'MAR ← PC',alu:'S1',path:['pc>s1','alu>MAR'],wr:['mar'],act:['pc','s1','alu','dest','mar','uc'],
+      txt:`<p>Primo stato del fetch: il PC abilita la sua uscita sul bus <b>S1</b>, la ALU lo lascia passare su <b>Dest</b> e al fronte del clock viene scritto in <b>MAR</b> (l'unico registro collegato al bus indirizzi).</p><p>Qui il controller controlla anche INT: ${S.int&&!S.ien?'<b>INT = 1 ma IEN = 0</b> (siamo nell\'handler): la richiesta resta in attesa e il fetch prosegue.':PG.intAt!=null?'INT = 0, fetch normale.':'con un interrupt e IEN = 1 farebbe IAR ← PC, PC ← 0. In questo programma non arrivano interrupt (prova «Interrupt e RFE»).'}</p>`});
+    /* FETCH 2 */
+    const bf=bus(S.MAR,4,'rd');
+    if(cfg.wait)snap({i,ph:'IF',st:'FETCH 2 · wait',rtl:'IR ← M[MAR] (READY = 0: attesa)',bus:{...bf,ready:0,lanes:[null,null,null,null],drv:'wait'},act:['mar','xl','uc','eprom','dec'],
+      txt:`<p>Parte il ciclo di bus: BA = MAR = ${h8(S.MAR)}h, tutti i BE, <b>MEMRD</b>, il decoder attiva <b>CS_EPROM</b>. La memoria però è lenta e tiene <b>READY = 0</b>: il dato non è ancora valido, il controller <b>resta in questo stato</b> (stato di wait) e la CPU non carica niente.</p>`});
+    S.ir=x;
+    snap({i,ph:'IF',st:'FETCH 2',rtl:'IR ← M[MAR]',bus:bf,path:['bd>ir'],wr:['ir'],act:['mar','xl','ir','uc','eprom','dec'],
+      txt:`<p>Ciclo di bus in lettura: BA = ${h8(S.MAR)}h, word allineata quindi <b>tutti i BE</b>, <b>MEMRD</b>. Il decoder vede BA31..28 = 0 e attiva <b>CS_EPROM</b>: ognuno dei 4 banchi mette il suo byte della riga ${S.MAR>>>2} sulla propria corsia. Con <b>READY = 1</b> la word entra in <b>IR</b> = ${h8(x.hex)}h.</p><p>Le porte di input e la RAM hanno il CS spento: le loro uscite sono in alta impedenza.</p>`});
+    /* DECODE */
+    const r1=(x.hex>>>21)&31,r2=(x.hex>>>16)&31;S.pc=(S.pc+4)>>>0;S.A=Rg(r1);S.B=Rg(r2);
+    let dnote=x.k==='rfe'?'RFE non ha operanti: A e B si ignorano.':x.k==='load'?`Questa è una load: B (R${r2} è la destinazione) non servirà, il valore letto si ignora.`:x.k==='store'?`Store: B contiene il dato da scrivere (R${r2}).`:x.k==='lhi'?'LHI usa solo l\'immediato: A e B si ignorano.':x.k==='alui'?`Formato I: B contiene la destinazione R${r2}, non serve.`:x.k==='alur'?'Formato R: A e B sono proprio i due operandi.':'';
+    let taken=false;if(x.k==='br'){taken=x.m==='BEQZ'?S.A===0:S.A!==0;dnote=`Branch: il controller testa A = R${r1} = ${h8(S.A)}h con la ALU (flag zero). ${taken?'A = 0: il salto è preso, serve uno stato in più.':'A ≠ 0: salto non preso, si torna subito al fetch.'}`}
+    snap({i,ph:'ID',st:'DECODE',rtl:`PC ← PC + 4 · A ← R${r1} · B ← R${r2}`,alu:'+',path:['pc>s1','k4>s2','alu>PC','rf>a','rf>b'],wr:['pc','a','b'],rr:[r1,r2],act:['pc','k4','s1','s2','alu','dest','rf','a','b','uc','ir'],
+      txt:`<p>Il controller decodifica l'opcode. <b>Nello stesso clock</b>, senza sapere ancora che istruzione è, legge dal register file i registri indicati dai campi fissi IR25..21 e IR20..16 (<b>speculativo</b>): A = ${h8(S.A)}h, B = ${h8(S.B)}h. Intanto la ALU calcola <b>PC + 4</b> con la costante 4 su S2.</p><p>${dnote}</p>`});
+    /* EXECUTE / MEM / WB */
+    const imm=sx16(x.imm);
+    if(x.k==='alui'||x.k==='alur'){
+      if(x.k==='alui'){const zx=ZEXT.includes(x.m),iv=immx(x);S.T=iv;snap({i,ph:'EX',st:'EXECUTE 1',rtl:zx?'TEMP ← 0¹⁶ ## IR15..0':'TEMP ← (IR15)16 ## IR15..0',alu:'S2',path:['ir>s2','alu>TEMP'],wr:['temp'],act:['ir','s2','alu','dest','temp','uc'],
+        txt:`<p>Formato I: l'immediato di IR, ${zx?'<b>esteso con zeri</b> (le logiche ANDI, ORI, XORI non estendono il segno)':'<b>esteso con segno</b>'}, esce su <b>S2</b> tramite tri-state, passa dalla ALU e va in <b>TEMP</b> = ${h8(iv)}h.</p>`})}
+      else{S.T=S.B;snap({i,ph:'EX',st:'EXECUTE 1',rtl:'TEMP ← B',alu:'S2',path:['b>s2','alu>TEMP'],wr:['temp'],act:['b','s2','alu','dest','temp','uc'],
+        txt:`<p>Formato R: il secondo operando B passa su S2 e va in <b>TEMP</b>. Il diagramma delle slide passa sempre da TEMP: duplicando i percorsi si risparmierebbe questo clock.</p>`})}
+      S.C=aop(x.m,S.A,S.T);
+      snap({i,ph:'EX',st:'EXECUTE 2',rtl:`C ← A ${opSym(x.m)} TEMP`,alu:opSym(x.m),path:['a>s1','temp>s2','alu>C'],wr:['c'],act:['a','temp','s1','s2','alu','dest','c','uc'],
+        txt:`<p>A su S1, TEMP su S2: la ALU calcola ${h8(S.A)}h ${opSym(x.m)} ${h8(S.T)}h = <b>${h8(S.C)}h</b>, che va in <b>C</b>.</p>`});
+      S.regs[x.rd]=S.C;
+      snap({i,ph:'WB',st:'WRITE BACK',rtl:`R${x.rd} ← C`,path:['c>rf'],wr:[x.rd],act:['c','rf','uc'],txt:`<p>C viene scritto nel register file, nel registro indicato dal campo RD: <b>R${x.rd}</b> = ${h8(S.C)}h. Poi si torna al fetch.</p>`});
+    }else if(x.k==='lhi'){
+      S.C=(x.imm<<16)>>>0;
+      snap({i,ph:'EX',st:'EXECUTE',rtl:'C ← IR15..0 ## 0000h',alu:'<<16',path:['ir>s2','alu>C'],wr:['c'],act:['ir','s2','alu','dest','c','uc'],
+        txt:`<p>L'immediato di IR esce su S2 e la ALU lo sposta di 16 posizioni a sinistra: <b>C</b> = ${h8(S.C)}h. LHI non accede alla memoria. (LHI non compare nel diagramma delle slide: segue lo schema delle ALU con immediato.)</p>`});
+      S.regs[x.rd]=S.C;
+      snap({i,ph:'WB',st:'WRITE BACK',rtl:`R${x.rd} ← C`,path:['c>rf'],wr:[x.rd],act:['c','rf','uc'],txt:`<p><b>R${x.rd}</b> = ${h8(S.C)}h: ora contiene un indirizzo base a 32 bit.</p>`});
+    }else if(x.k==='load'){
+      S.MAR=(S.A+imm)>>>0;const sz=SZ[x.m],o=S.MAR&3;
+      snap({i,ph:'EX',st:'EXECUTE',rtl:'MAR ← A + (IR15)16 ## IR15..0',alu:'+',path:['a>s1','ir>s2','alu>MAR'],wr:['mar'],act:['a','ir','s1','s2','alu','dest','mar','uc'],
+        txt:`<p>Indirizzo <b>base + spiazzamento</b>: A = ${h8(S.A)}h su S1, immediato esteso con segno su S2, la ALU somma: <b>MAR</b> = ${h8(S.MAR)}h. I 2 bit bassi (${b2(S.MAR)}) non usciranno sul bus: diventano i BE.</p>`});
+      const bl=bus(S.MAR,sz,'rd');let raw=0;for(let k=0;k<sz;k++)raw|=(bl.lanes[o+k]||0)<<(8*k);raw>>>=0;
+      const xl=[];for(let k=0;k<sz;k++)xl.push([o+k,k]);
+      if(cfg.wait)snap({i,ph:'MEM',st:'MEMORY · wait',rtl:'MDR ← M[MAR] (READY = 0: attesa)',bus:{...bl,ready:0},act:['mar','xl','uc','dec','ports'],
+        txt:`<p>Ciclo di bus in lettura iniziato, ma <b>READY = 0</b>: il controller resta in attesa e non carica MDR.</p>`});
+      S.MDR=raw;const ack=PG.intAt!=null&&bl.cs.i&&S.int;if(ack)S.int=0;
+      snap({i,ph:'MEM',st:'MEMORY',rtl:'MDR ← M[MAR]',bus:bl,path:['xl>mdr'],wr:['mdr'],act:['mar','xl','mdr','uc','dec',bl.cs.i?'ports':bl.cs.r?'ram':'eprom'],xl,
+        txt:`<p>Ciclo di bus: MAR = ${h8(S.MAR)}h → esce <b>BA31..2</b> (${baS(S.MAR)}), mentre MAR1..0 = ${b2(S.MAR)} e la dimensione (${{1:'byte',2:'halfword',4:'word'}[sz]}) diventano <b>${beName(bl.be)}</b>. <b>MEMRD</b>. ${bl.cs.i?'Il decoder attiva <b>CS_INPUT</b>; si accendono solo i buffer tri-state con il loro BE attivo, le altre corsie restano in <b>alta impedenza</b>.':bl.cs.r?'Il decoder attiva <b>CS_RAM</b>: rispondono solo i banchi con il BE attivo.':'Il decoder attiva <b>CS_EPROM</b>.'}</p><p>Il <b>mux di byte</b> dell'interfaccia porta il dato ${o?`dalla corsia ${LN[o]} `:''}ai bit bassi di MDR (in lettura il dato entra sempre allineato): <b>MDR</b> = ${h8(raw)}h.</p>${ack?'<p>La lettura della porta è anche la <b>risposta alla periferica</b>: la richiesta si spegne, <b>INT = 0</b>.</p>':''}`});
+      const sg=x.m==='LB'||x.m==='LH';S.C=sz===4?raw:sg?(sz===1?sx8(raw):sx16(raw)):raw;const top=sz===1?raw>>7&1:raw>>15&1;
+      snap({i,ph:'WB',st:'WRITE BACK 1',rtl:sz===4?'C ← MDR':`C ← (MDR${sz*8-1})${32-sz*8} ## MDR${sz*8-1}..0`,alu:'ext',path:['mdr>s1','alu>C'],wr:['c'],act:['mdr','s1','alu','dest','c','uc'],ext:true,
+        txt:`<p>MDR passa in <b>C</b> con l'<b>estensione del segno</b>: il bit ${sz*8-1} vale ${top}, quindi i bit alti si riempiono di ${top?'1':'0'}. <b>C</b> = ${h8(S.C)}h.${cfg.p===0&&!top?' Prova con SWAP o con porta B = 80: il segno cambia.':''}</p>`});
+      S.regs[x.rd]=S.C;
+      snap({i,ph:'WB',st:'WRITE BACK 2',rtl:`R${x.rd} ← C`,path:['c>rf'],wr:[x.rd],act:['c','rf','uc'],txt:`<p><b>R${x.rd}</b> = ${h8(S.C)}h. La load ha richiesto due clock di write back (C ← MDR e RD ← C).</p>`});
+    }else if(x.k==='store'){
+      S.MAR=(S.A+imm)>>>0;const sz=SZ[x.m],o=S.MAR&3;
+      snap({i,ph:'EX',st:'EXECUTE 1',rtl:'MAR ← A + (IR15)16 ## IR15..0',alu:'+',path:['a>s1','ir>s2','alu>MAR'],wr:['mar'],act:['a','ir','s1','s2','alu','dest','mar','uc'],
+        txt:`<p>Indirizzo base + spiazzamento: <b>MAR</b> = ${h8(S.A)}h + ${h8(imm)}h = ${h8(S.MAR)}h.</p>`});
+      S.MDR=S.B;
+      snap({i,ph:'EX',st:'EXECUTE 2',rtl:'MDR ← B',alu:'S2',path:['b>s2','alu>MDR'],wr:['mdr'],act:['b','s2','alu','dest','mdr','uc'],
+        txt:`<p>Il dato da scrivere (B = R${x.rs2}) passa su S2 e va in <b>MDR</b> = ${h8(S.B)}h.</p>`});
+      const bs=bus(S.MAR,sz,'wr',S.MDR),xl=[];for(let k=0;k<sz;k++){xl.push([o+k,k]);S.ram[(S.MAR+k)>>>0]=byte(S.MDR,k)}
+      if(cfg.wait)snap({i,ph:'MEM',st:'MEMORY · wait',rtl:'M[MAR] ← MDR (READY = 0: attesa)',bus:{...bs,ready:0},act:['mar','mdr','xl','uc','dec','ram'],xl,xlOut:true,
+        txt:`<p>Ciclo di scrittura avviato, ma la RAM tiene <b>READY = 0</b>: il controller resta in questo stato e la CPU continua a pilotare BA, BD e MEMWR.</p>`});
+      snap({i,ph:'MEM',st:'MEMORY',rtl:'M[MAR] ← MDR',bus:bs,path:['mdr>xl'],act:['mar','mdr','xl','uc','dec','ram'],xl,xlOut:true,
+        txt:`<p>Ciclo di bus in scrittura: MAR = ${h8(S.MAR)}h → <b>BA31..2</b> (${baS(S.MAR)}); ${{1:'byte',2:'halfword',4:'word'}[sz]} a offset ${b2(S.MAR)} → <b>${beName(bs.be)}</b>, <b>MEMWR</b>. Il decoder attiva <b>CS_RAM</b> (BA31..16 = FFFFh). Ogni banco della RAM è abilitato da CS_RAM · BEj: ${sz===4?'scrivono tutti e quattro':'scrive solo il banco '+o}, alla riga data da BA15..2.</p><p>${o?`Il <b>demux di byte</b> sposta MDR7..0 sulla corsia ${LN[o]}: è lì che si trova il banco di offset ${o.toString(2).padStart(2,'0')}. `:''}Le store finiscono qui: non scrivono registri.</p>`});
+    }else if(x.k==='rfe'){
+      S.pc=S.iar;S.ien=1;
+      snap({i,ph:'EX',st:'RFE',rtl:'PC ← IAR · IEN ← 1',alu:'S1',path:['iar>s1','alu>PC'],wr:['pc'],act:['iar','s1','alu','dest','pc','uc'],
+        txt:`<p><b>Return From Exception</b>: IAR esce su S1, attraversa la ALU e torna nel <b>PC</b> = ${h8(S.pc)}h; insieme <b>IEN ← 1</b> riabilita gli interrupt. Il PC + 4 calcolato in decode viene sovrascritto.</p><p>Il prossimo fetch riprende dall'istruzione che era stata «scavalcata» dall'interrupt: per il programma principale è come se niente fosse successo.</p>`});
+    }else{
+      if(taken){S.pc=(S.pc+imm)>>>0;
+        snap({i,ph:'EX',st:'BRANCH',rtl:'PC ← PC + (IR15)16 ## IR15..0',alu:'+',path:['pc>s1','ir>s2','alu>PC'],wr:['pc'],act:['pc','ir','s1','s2','alu','dest','uc'],
+          txt:`<p>Salto preso: PC (già incrementato) + offset esteso con segno = <b>${h8(S.pc)}h</b>. L'istruzione all'indirizzo intermedio viene saltata. Il branch preso costa un clock in più di quello non preso.</p>`})}
+    }
+  }
+  return out;
 }
-const INFO={pc:['Program Counter','Indirizzo della prossima istruzione. Nel fetch passa dal mux al bus indirizzi, poi viene incrementato di 4: le istruzioni sono word allineate, quindi i 2 bit bassi valgono sempre 00 (si potrebbe usare un PC a 30 bit).'],
- ir:['Instruction Register','Tiene ferma l\'istruzione letta nel fetch per tutta la sua esecuzione. I campi (opcode IR31..26, RS1 IR25..21, RS2/RD IR20..16, immediato IR15..0) sono sempre negli stessi bit: è ciò che permette le letture speculative in decode.'],
- rf:['Register File','32 registri da 32 bit, R0 sempre 0. Due porte di lettura (due mux 32:1 comandati da RS1 e RS2) e una di scrittura (decoder 5→32 su RD, abilitato da WE). La lettura è combinatoria.'],
- ab:['Registri A e B','Caricati in decode in modo speculativo: A ← RS1, B ← campo IR20..16, in parallelo alla decodifica. Se l\'istruzione non li usa, il valore si ignora. Nelle store B contiene il dato da scrivere.'],
- imm:['Immediato esteso','I 16 bit bassi di IR estesi a 32 bit con segno (bit 15 replicato). Per le istruzioni logiche e unsigned l\'estensione sarebbe con zeri: lo decide l\'opcode.'],
- alu:['ALU','In EX calcola il risultato delle operazioni o l\'indirizzo di load e store (base + spiazzamento). I 2 bit bassi del risultato (offset nella word) servono a generare i BE.'],
- lmd:['LMD · Load Memory Data','Riceve il dato letto in MEM, già riallineato (un mux interno porta il byte o la halfword nei bit bassi) ed esteso con segno o con zeri. In WB va nel registro destinazione.'],
- mux:['Mux indirizzi','Sceglie chi pilota il bus indirizzi: il PC durante il fetch, l\'uscita dell\'ALU nella fase MEM di load e store.'],
- dec:['Decoder di 1° livello','Dai bit alti di BA (e da MEMRD per le porte) genera i chip select. Decodifica semplificata: usa solo i bit che servono a distinguere i dispositivi presenti, per questo ognuno risponde in più zone (aliasing).'],
- eprom:['EPROM','Contiene il programma. Il decoder di 2° livello è dentro il chip: i suoi piedini d\'indirizzo ricevono BA15..2. Nel fetch risponde su tutte e 4 le corsie.'],
- ram:['RAM','Quattro banchi da 8 bit, uno per corsia di BD. BA15..2 sceglie la riga (indirizzo fisico = logico / 4), i BE scelgono quali banchi partecipano: per questo una SB scrive un solo byte.'],
- io:['Porte di input e tri-state','Due porte da 8 bit sulle corsie BD7..0 e BD15..8. Ogni buffer tri-state si accende solo con CS_INPUT · MEMRD · il suo BE; spento, la sua uscita è in alta impedenza (Z) e non disturba chi pilota il bus. SWAP inverte quale porta va su quale corsia.'],
- bus:['Bus di sistema','BA: indirizzi (nel DLX escono solo BA31..2, BA1 e BA0 diventano i BE). BD: dati, 4 corsie da 8 bit. BE3..0: quali corsie sono valide, da offset + dimensione. MEMRD/MEMWR: comando. In ogni ciclo un solo dispositivo pilota ogni corsia.']};
-const $=id=>document.getElementById(id);
-const cfg=()=>({demo:+$('demo').value,swap:$('swap').checked,pa:parseInt($('pa').value,16)&255||0,pb:parseInt($('pb').value,16)&255||0});
-const N=20;let n=0,timer=null,pend=null,fb='',sc={ok:0,tot:0};
-function render(){
-  const c=cfg(),st=sim(n,c),v=st.v,P=DEMOS[c.demo];draw(st,c);
-  $('cnt').textContent=`passo ${n} / ${N}`;$('back').disabled=n===0;$('next').disabled=n===N;
-  $('score').textContent=$('quiz').checked?`· quiz ${sc.ok}/${sc.tot}`:'';
-  $('tl').innerHTML=P.map((p,i)=>`<div class="tg"><b>${p.txt}</b><div>${PH.map((x,j)=>{const k=i*5+j+1;return`<button data-n="${k}" class="${k===n?'cur':k<n?'done':''}" aria-label="${p.txt} ${x}">${x}</button>`}).join('')}</div></div>`).join('');
-  $('phases').innerHTML=PH.map((p,j)=>`<span class="ph ${v&&v.ph===j?'on':v&&j<v.ph?'done':''}">${p}</span>`).join('');
-  let q='';if(fb)q+=fb;
-  if(pend)q+=`<div class="quiz"><h3>Prevedi: ${pend.q}</h3><div class="opts">${pend.opts.map(x=>`<button data-a="${x}">${x}</button>`).join('')}</div></div>`;
-  $('qz').innerHTML=q;
-  if(!v){$('ttl').textContent='Pronto: premi Avanza fase';$('rtl').textContent='PC ← 00000000h';
-    $('txt').innerHTML='<p>Registri a valore ignoto (tranne R0 = 0). Tutti i bus sono in alta impedenza: nessuno li pilota.</p><p>Suggerimento: attiva la <b>modalità quiz</b> e prova a prevedere ogni passo. Poi rifai il giro con <b>SWAP</b> o con valori diversi delle porte (es. porta B = 80) e guarda cosa cambia in R21.</p>';
-    $('busline').textContent='BA = Z · BE = 0000 · MEMRD = 0 · MEMWR = 0';}
-  else{const ins=P[v.i],b=v.bus,C=cs(b);$('ttl').textContent=`${ins.txt} — ${PH[v.ph]}: ${PHN[v.ph]}`;$('rtl').textContent=v.rtl;$('txt').innerHTML=v.t;
-    $('busline').textContent=`BA = ${b.ba!=null?h8(b.ba)+'h':'Z'} · BE3..0 = ${b.be.slice().reverse().join('')} · MEMRD = ${b.rd} · MEMWR = ${b.wr} · CS = ${C.e?'EPROM':C.r?'RAM':C.i?'INPUT':'nessuno'} · BD = ${b.lanes.slice().reverse().map(x=>x==null?'Z':h2(x)).join(' ')}`}
-  $('prog').innerHTML=P.map((p,j)=>`<li class="${v&&v.i===j&&n<N?'cur':v&&(j<v.i||n===N)?'done':''}"><span>${h8(p.addr)}h</span><span>${p.txt}</span><small>${p.why}</small></li>`).join('');
+
+/* ================= SEQUENZIALE: disegno ================= */
+const SP={'pc>s1':'90,235 90,180 930,180','iar>s1':'200,235 200,180 930,180','a>s1':'420,235 420,180 930,180','mdr>s1':'750,235 750,180 930,180','alu>IAR':'975,283 975,315 225,315 225,285',
+ 'temp>s2':'310,235 310,205 930,205','b>s2':'530,235 530,205 930,205','k4>s2':'808,166 808,205 930,205','ir>s2':'720,140 720,205 930,205',
+ 'alu>PC':'975,283 975,315 115,315 115,285','alu>TEMP':'975,283 975,315 335,315 335,285','alu>C':'975,283 975,315 665,315 665,285','alu>MAR':'975,283 975,315 885,315 885,285','alu>MDR':'975,283 975,315 780,315 780,285',
+ 'rf>a':'420,345 420,285','rf>b':'530,345 530,285','c>rf':'620,285 620,330 575,330 575,405 560,405',
+ 'mar>ba':'845,285 845,338 1030,338','mdr>xl':'725,285 725,352 1030,352','xl>mdr':'1030,352 725,352 725,285','bd>ir':'1100,150 1100,100 760,100'};
+const LY=[965,940,915,890];
+const RFSHOW=[0,1,2,3,20,21,22,31];
+function drawSeq(sp,cfg){
+  const P=SEQP[cfg.p].c,s=sp?sp.s:{pc:SEQP[cfg.p].start||0,ir:null,regs:{0:0},ram:{},iar:null,ien:1,int:0},b=sp&&sp.bus,act=new Set(sp?sp.path:[]),wr=sp?sp.wr:[],rr=sp?sp.rr:[],A=new Set(sp?sp.act:[]);
+  const on=!!b,rdy=b?b.ready:1,cs=b?b.cs:{},any=b?b.be.some(x=>x):false;
+  const ck=(k)=>wr.includes(k)?'wr':A.has(k)?'act':'';
+  let o=`<rect x="20" y="40" width="1240" height="440" rx="16" class="frame"/>`+T(36,30,'CPU · DLX sequenziale (datapath)')+
+    `<rect x="20" y="495" width="1240" height="490" rx="16" class="frame"/>`+T(36,512,'Scheda: bus di sistema, decoder, memorie, porte','t');
+  // bus interni base
+  o+=G('seq','s1',`<polyline class="bb" points="60,180 930,180"/>`+T(46,184,'S1','vs','end'))+G('seq','s2',`<polyline class="bb" points="60,205 930,205"/>`+T(46,209,'S2','vs','end'))+G('seq','dest',`<polyline class="bb" points="975,283 975,315 60,315"/>`+T(46,319,'Dest','vs','end'));
+  for(const k in SP)o+=W(SP[k],act.has(k),k==='mar>ba'?'addr':'data');
+  o+=W(SP['mar>ba'],on,'addr');
+  // UC e IR
+  o+=G('seq','uc',R(40,60,280,80,A.has('uc')?'act':'')+T(52,80,'Unità di controllo (RSS)')+T(52,102,sp?sp.st:'reset','v','start',sp?'var(--ctl)':'')+T(52,124,'genera OE, WE, comando ALU, MEMRD/WR','s')+
+    T(236,80,'INT','vs','start',s.int?'var(--cs)':'')+`<circle cx="268" cy="76" r="5" class="led ${s.int?'on':''}"/>`+T(278,80,'IEN','vs','start',s.ien?'var(--ctl)':'')+`<circle cx="310" cy="76" r="5" class="led" style="${s.ien?'fill:var(--ctl);stroke:var(--ctl)':''}"/>`);
+  o+=W('340,100 320,100',!!sp,'ctl');
+  const ir=s.ir;
+  let ig=R(340,60,420,80,ck('ir'))+T(352,78,'IR · Instruction Register')+T(750,78,ir?h8(ir.hex)+'h':'????????','v','end');
+  [['opcode',352,58,ir?h2(ir.hex>>>26):'--'],['RS1',414,54,ir?'R'+((ir.hex>>>21)&31):'--'],['RS2/RD',472,62,ir?'R'+((ir.hex>>>16)&31):'--'],['Imm IR15..0',538,212,ir?(ir.hex&0xFFFF).toString(16).toUpperCase().padStart(4,'0')+'h':'----']].forEach(([n,x,w,v])=>{ig+=`<rect x="${x}" y="88" width="${w}" height="44" rx="4" class="bx"/>`+T(x+4,102,n,'s')+T(x+4,124,v,'vs')});
+  o+=G('seq','ir',ig+T(752,152,ir?ir.t:'','vs','end'));
+  o+=G('seq','k4',R(790,142,36,24,A.has('k4')?'act':'')+T(808,159,'4','v','middle'));
+  // registri
+  const regs=[['pc','PC',40,s.pc],['iar','IAR',150,s.iar],['temp','TEMP',260,s.T],['a','A',370,s.A],['b','B',480,s.B],['c','C',590,s.C],['mdr','MDR',700,s.MDR],['mar','MAR',810,s.MAR]];
+  for(const [k,n,x,v] of regs)o+=G('seq',k,R(x,235,100,50,ck(k))+T(x+8,252,n,'s')+T(x+8,274,k==='iar'&&v==null?'—':h8(v),'v'));
+  // ALU
+  o+=G('seq','alu',`<polygon points="930,165 1010,195 1010,270 930,300" class="bx ${A.has('alu')?'act':''}"/>`+T(972,230,'ALU','t','middle')+T(972,250,sp&&sp.alu?sp.alu:'','v','middle','var(--data)'));
+  // register file
+  let rf=R(40,345,520,120,A.has('rf')?'act':'')+T(52,363,'Register File (32 × 32 bit, R0 = 0)')+T(548,363,'2 porte lettura → A, B · 1 scrittura ← C','s','end');
+  RFSHOW.forEach((r,j)=>{const x=j<4?52:300,y=388+(j%4)*20,cl=wr.includes(r)?'wr':rr.includes(r)?'rd':'';
+    rf+=`<rect x="${x-4}" y="${y-14}" width="240" height="18" rx="3" class="row ${cl}"/>`+T(x,y,'R'+r,'vs')+T(x+228,y,h8(s.regs[r])+'h','v','end')});
+  o+=G('seq','rf',rf);
+  // interfaccia bus
+  let xl=R(1030,150,220,320,A.has('xl')?'act':'')+T(1042,170,'Interfaccia bus')+T(1042,190,'BA31..2 ← MAR31..2','vs')+T(1042,208,'BE ← MAR1..0 + dimensione','vs')+T(1042,226,'BE3..0 = '+(b?b.be.slice().reverse().join(''):'0000'),'v','start',any?'var(--ctl)':'')+T(1042,256,'mux / demux di byte','s')+T(1042,272,sp&&sp.xlOut?'MDR → corsie (scrittura)':'corsie → MDR (lettura)','s');
+  for(let j=3;j>=0;j--){const y=372+(3-j)*21,used=sp&&sp.xl&&sp.xl.some(p=>p[1]===j),lu=sp&&sp.xl&&sp.xl.some(p=>p[0]===j);
+    xl+=`<rect x="1042" y="${y}" width="66" height="18" rx="3" class="bx ${used?'wr':''}"/>`+T(1046,y+13,'MDR b'+j,'vs')+`<rect x="1172" y="${y}" width="66" height="18" rx="3" class="bx ${lu?'act':''}"/>`+T(1176,y+13,LN[j].replace('BD',''),'vs')}
+  if(sp&&sp.xl)for(const [ln,mb] of sp.xl)xl+=W(`1108,${381+(3-mb)*21} 1172,${381+(3-ln)*21}`,true,'data');
+  if(sp&&sp.ext)xl+=T(1042,465,'bit alti di C: estensione del segno','s');
+  o+=G('seq','xl',xl);
+  // collegamenti interfaccia → bus di sistema
+  o+=W('1060,470 1060,520',on,'addr')+W('1080,470 1080,542',any,'ctl')+W('1100,470 1100,564',b&&b.rd,'ctl')+W('1120,470 1120,586',b&&b.wr,'ctl')+W('1140,608 1140,470',on,'ctl');
+  [1180,1200,1220,1240].forEach((x,n)=>{const j=3-n,v=b?b.lanes[j]:null;o+=W(`${x},470 ${x},${LY[j]}`,v!=null,'data',v==null)});
+  // linee di sistema
+  o+=G('seq','ba',W('50,520 1060,520',on,'addr')+T(385,515,'BA31..2 = '+(on?baS(b.ba)+'   (MAR1..0 = '+b2(b.ba)+' → BE)':'Z'),'lbl','start',on?'var(--addr)':''));
+  o+=G('seq','be',W('50,542 1130,542',any,'ctl')+T(385,537,'BE3..0 = '+(b?b.be.slice().reverse().join(''):'0000'),'lbl','start',any?'var(--ctl)':''));
+  o+=G('seq','memrd',W('50,564 1100,564',b&&b.rd,'ctl')+T(385,559,'MEMRD'+(b&&b.rd?' = 1':''),'lbl','start',b&&b.rd?'var(--ctl)':''));
+  o+=G('seq','memwr',W('640,586 1120,586',b&&b.wr,'ctl')+T(930,581,'MEMWR'+(b&&b.wr?' = 1':''),'lbl','start',b&&b.wr?'var(--ctl)':''));
+  o+=G('seq','ready',W('612,608 1140,608',on,'ctl')+W('612,608 612,700',on,'ctl')+T(930,603,'READY'+(on?' = '+rdy:''),'lbl','start',on?(rdy?'var(--ctl)':'var(--bad)'):''));
+  for(let j=3;j>=0;j--){const v=b?b.lanes[j]:null;o+=G('seq','bd',W(`50,${LY[j]} ${1240-(3-j)*20},${LY[j]}`,v!=null,'data',v==null)+T(56,LY[j]-5,LN[j]+' = '+(v!=null?h2(v)+'h':b&&b.drv==='wait'?'non valido':'Z'),'lbl','start',v!=null?'var(--data)':'var(--hiz)'))}
+  // decoder
+  o+=W('70,520 70,700',on,'addr')+W('100,564 100,700',b&&b.rd,'ctl');
+  o+=W('170,700 170,632 580,632 580,700',cs.e,'cs')+W('200,700 200,652 880,652 880,700',cs.r,'cs')+W('230,700 230,672 1130,672 1130,700',cs.i,'cs');
+  o+=T(385,628,'CS_EPROM','lbl','start',cs.e?'var(--cs)':'')+T(385,648,'CS_RAM','lbl','start',cs.r?'var(--cs)':'')+T(385,668,'CS_INPUT','lbl','start',cs.i?'var(--cs)':'');
+  let d=R(40,700,240,160,(cs.e||cs.r||cs.i)?'sel':'')+T(52,720,'Decoder di 1° livello')+T(52,736,'ingressi: BA31..16, MEMRD','s');
+  [['CS_EPROM','BA31..28 = 0000',cs.e],['CS_RAM','BA31..16 = FFFFh',cs.r],['CS_INPUT','BA31..29 = 001 · MEMRD',cs.i]].forEach(([n,e,a],j)=>{const y=764+j*32;d+=`<circle cx="60" cy="${y-4}" r="6" class="led ${a?'on':''}"/>`+T(74,y,n,'vs','start',a?'var(--cs)':'')+T(74,y+13,e,'s')});
+  o+=G('seq','dec',d);
+  // EPROM: 4 banchi
+  o+=W('330,520 330,700',cs.e,'addr')+W('360,564 360,700',cs.e&&b.rd,'ctl');
+  let ep=R(300,700,300,24,cs.e?'sel':'')+T(310,716,'EPROM · 00000000h · A ← BA15..2 · banco j: CS·BEj','s');
+  for(let j=3;j>=0;j--){const x=305+(3-j)*73,en=cs.e&&b.be[j];
+    ep+=R(x,730,68,122,en?'sel':'')+T(x+6,746,'banco '+j,'s')+T(x+6,760,LN[j].replace('BD',''),'vs')+`<circle cx="${x+58}" cy="742" r="5" class="led ${en?'on':''}"/>`;
+    P.forEach((q,r)=>{const y=780+r*13,hl=en&&b.row===(q.addr>>>2);ep+=`<rect x="${x+3}" y="${y-10}" width="62" height="12" rx="2" class="row ${hl?'rd':''}"/>`+T(x+34,y,h2(byte(q.hex,j)),'vs','middle',hl?'var(--ink)':'')})}
+  o+=G('seq','eprom',ep);
+  for(let j=0;j<4;j++){const x=305+(3-j)*73+34,dr=b&&b.drv==='EPROM'&&b.lanes[j]!=null;o+=W(`${x},852 ${x},${LY[j]}`,dr,'data',!dr)}
+  // RAM: 4 banchi
+  o+=W('660,520 660,700',cs.r,'addr')+W('690,542 690,700',cs.r,'ctl')+W('750,586 750,700',cs.r&&b.wr,'ctl');
+  const RR=[0xFFFF0FFC,0xFFFF1000,0xFFFF1004];
+  let rm=R(630,700,270,24,cs.r?'sel':'')+T(640,716,'RAM · FFFF0000h · righe …0FFC, …1000, …1004','s');
+  for(let j=3;j>=0;j--){const x=635+(3-j)*66,en=cs.r&&b.be[j];
+    rm+=R(x,730,62,122,en?'sel':'')+T(x+5,746,'banco '+j,'s')+T(x+5,760,LN[j].replace('BD',''),'vs')+`<circle cx="${x+53}" cy="742" r="5" class="led ${en?'on':''}"/>`;
+    RR.forEach((a,r)=>{const y=790+r*20,hl=en&&((b.ba&~3)>>>0)===a;rm+=`<rect x="${x+3}" y="${y-13}" width="56" height="17" rx="2" class="row ${hl?'wr':''}"/>`+T(x+31,y,h2(s.ram[(a+j)>>>0]),'v','middle')})}
+  o+=G('seq','ram',rm);
+  for(let j=0;j<4;j++){const x=635+(3-j)*66+31,dr=cs.r&&b.drv==='CPU'&&b.be[j];o+=W(`${x},852 ${x},${LY[j]}`,dr,'data',!dr)}
+  // porte e tri-state
+  o+=W('960,542 960,700',cs.i,'ctl');
+  const aP=cfg.swap?'987,775 987,785 1092,800 1092,808':'987,775 987,808',bP=cfg.swap?'1092,775 1092,785 987,800 987,808':'1092,775 1092,808';
+  let pt=R(930,700,210,160,cs.i?'sel':'')+T(940,716,'Porte di input · 20000000h','t')+T(940,730,'OE_j = CS_INPUT · BEj','s');
+  pt+=W('987,738 987,745',1,'data',0,1)+W('1092,738 1092,745',1,'data',0,1)+W(aP,1,'data',0,1)+W(bP,1,'data',0,1);
+  pt+=R(945,745,84,30)+T(951,764,'A '+h2(cfg.pa)+'h','v')+R(1050,745,84,30)+T(1056,764,'B '+h2(cfg.pb)+'h','v');
+  pt+=`<polygon points="969,808 1005,808 987,838" class="tri ${b&&b.triL?'on':''}"/><polygon points="1074,808 1110,808 1092,838" class="tri ${b&&b.triH?'on':''}"/>`;
+  pt+=T(940,854,'OE_L='+(b&&b.triL?1:0)+'  OE_H='+(b&&b.triH?1:0)+(cfg.swap?'  SWAP':''),'vs');
+  o+=G('seq','ports',pt);
+  o+=W('987,838 987,965',b&&b.triL,'data',!(b&&b.triL))+W('1092,838 1092,940',b&&b.triH,'data',!(b&&b.triH));
+  // legenda
+  [['indirizzi','addr',0],['dati','data',0],['controllo','ctl',0],['chip select','cs',0],['alta impedenza (Z)','',1]].forEach(([n,k,hz],j)=>{const x=330+j*160;o+=`<polyline class="w ${hz?'hz':'on '+k}" points="${x},1000 ${x+30},1000"/>`+T(x+38,1004,n,'s')});
+  $('s-fig').innerHTML=o;
 }
-function advance(){if(n>=N)return false;
-  if($('quiz').checked&&!pend){const q=quiz(n,cfg());if(q){pend=q;fb='';render();return false}}
-  fb='';n++;render();return true}
-function stop(){clearInterval(timer);timer=null;$('play').hidden=true}
-function start(ms){stop();if(!ms)return;$('play').hidden=false;$('play').textContent='⏸ Pausa';
-  timer=setInterval(()=>{if(n>=N){stop();$('mode').value='0';return}if(!advance()&&pend){clearInterval(timer);timer=null;$('play').textContent='▶ Riprendi'}},ms)}
-$('next').onclick=()=>{if(!pend)advance()};
-$('back').onclick=()=>{if(n>0){n--;pend=null;fb='';render()}};
-$('reset').onclick=()=>{n=0;pend=null;fb='';sc={ok:0,tot:0};render()};
-$('demo').onchange=()=>{n=0;pend=null;fb='';render()};
-['swap','pa','pb'].forEach(id=>$(id).addEventListener(id==='swap'?'change':'input',()=>{pend=null;render()}));
-$('quiz').onchange=()=>{pend=null;fb='';render()};
-$('mode').onchange=e=>{if(n>=N)n=0;render();start(+e.target.value)};
-$('play').onclick=()=>{if(timer){clearInterval(timer);timer=null;$('play').textContent='▶ Riprendi'}else start(+$('mode').value)};
-$('tl').addEventListener('click',e=>{const t=e.target.closest('button[data-n]');if(t){n=+t.dataset.n;pend=null;fb='';render()}});
-$('qz').addEventListener('click',e=>{const t=e.target.closest('button[data-a]');if(!t||!pend)return;const ok=t.dataset.a===pend.ok;sc.tot++;if(ok)sc.ok++;
-  const why=pend.why,right=pend.ok;pend=null;n++;fb=`<div class="fb ${ok?'ok':'ko'}">${ok?'✓ Giusto.':'✗ Era <b>'+right+'</b>.'} ${why}</div>`;render();
-  if($('mode').value!=='0'&&!timer)start(+$('mode').value)});
-$('fig').addEventListener('click',e=>{const g=e.target.closest('[data-k]');if(!g)return;pick=g.dataset.k;$('infoT').textContent=INFO[pick][0];$('info').textContent=INFO[pick][1];render()});
-document.addEventListener('keydown',e=>{if(['SELECT','INPUT'].includes(e.target.tagName))return;if(e.key==='ArrowRight'){e.preventDefault();$('next').click()}if(e.key==='ArrowLeft'){e.preventDefault();$('back').click()}});
-render();
+
+/* ================= PIPELINE: motore ================= */
+const PIPP=[
+ {n:'Nessuna alea (caso ideale)',c:mk([['ADD',{rd:1,rs1:2,rs2:3}],['SUB',{rd:4,rs1:5,rs2:6}],['AND',{rd:7,rs1:8,rs2:9}],['OR',{rd:10,rs1:11,rs2:12}],['ADDI',{rd:13,rs1:0,imm:1}]]),note:'Istruzioni indipendenti: a regime un\'istruzione completata per clock. 5 istruzioni in 9 clock = 5 + 4 di riempimento.'},
+ {n:'Esercizio: ADD, LW, SUB',c:mk([['ADD',{rd:1,rs1:2,rs2:3}],['LW',{rd:2,rs1:3,imm:0xFF00}],['SUB',{rd:3,rs1:1,rs2:3}]]),note:'Esercizio d\'esame. Senza forwarding e split-cycle: 2 stalli, solo sulla SUB (R1 a distanza 2). La LW non dipende da nessuno.'},
+ {n:'LOAD e chi usa il dato (slide 34)',c:mk([['LW',{rd:1,rs1:6,imm:0x20}],['ADD',{rd:4,rs1:1,rs2:7}],['SUB',{rd:5,rs1:1,rs2:8}],['AND',{rd:6,rs1:1,rs2:7}]]),note:'Anche con il forwarding resta 1 stallo: il dato della LW esiste solo a fine MEM, troppo tardi per l\'EX della ADD.'},
+ {n:'Esercizio a tre casi',c:mk([['SUB',{rd:4,rs1:5,rs2:6}],['LW',{rd:4,rs1:12,imm:0x100}],['LW',{rd:9,rs1:4,imm:0x200}],['ADD',{rd:6,rs1:8,rs2:1}],['ADDI',{rd:15,rs1:4,imm:1}]]),note:'Esercizio d\'esame con tre casi: senza FU e senza CS 3 stalli, con FU 1, con solo CS 2. L\'ADDI non stalla: gli stalli precedenti la assorbono.'},
+ {n:'Store dopo ALU',c:mk([['ADD',{rd:1,rs1:0,rs2:0}],['ADDI',{rd:2,rs1:0,imm:1}],['SW',{rs2:2,rs1:1,imm:0x10}],['SW',{rs2:2,rs1:1,imm:0x14}]]),note:'Nella store anche il dato (R2) è un registro letto. Senza FU: 3 stalli sulla prima SW.'},
+ {n:'Branch: predict not taken (slide 38)',c:mk([['BEQZ',{rs1:4,imm:0xC}],['SUB',{rd:7,rs1:3,rs2:5}],['OR',{rd:1,rs1:3,rs2:5}],['LW',{rd:6,rs1:8,imm:0x100}],['AND',{rd:9,rs1:5,rs2:3}]]),br:true,note:'Il branch si completa in MEM. Intanto sono entrate 3 istruzioni: se il salto è preso diventano NOP (flush), senza danni perché nessuna ha fatto WB.'},
+ {n:'Delayed load: prima del riordino (slide 35)',c:mk([['LW',{rd:1,rs1:6,imm:0x20}],['LW',{rd:3,rs1:4,imm:0xA}],['ADD',{rd:5,rs1:1,rs2:3}],['LW',{rd:6,rs1:7,imm:0x14}],['LW',{rd:8,rs1:9,imm:0x28}]]),note:'La ADD usa R3 caricato dall\'istruzione subito prima: anche con il forwarding 1 stallo (load delay slot occupato da chi usa il dato). Confronta con «dopo il riordino».'},
+ {n:'Delayed load: dopo il riordino',c:mk([['LW',{rd:1,rs1:6,imm:0x20}],['LW',{rd:3,rs1:4,imm:0xA}],['LW',{rd:6,rs1:7,imm:0x14}],['ADD',{rd:5,rs1:1,rs2:3}],['LW',{rd:8,rs1:9,imm:0x28}]]),note:'Il compilatore sposta LW R6 tra la LW R3 e la ADD: è indipendente da entrambe (la ADD non usa R6). Con il forwarding 0 stalli: il load delay slot è riempito con lavoro utile.'},
+ {n:'Delayed branch (slide 40)',delayed:true,c:mk([['SNE',{rd:1,rs1:8,rs2:9}],['BNEZ',{rs1:1,imm:0x10}],['ADD',{rd:5,rs1:4,rs2:3}],['SUB',{rd:6,rs1:5,rs2:2}],['OR',{rd:14,rs1:6,rs2:21}],['ADDI',{rd:20,rs1:0,imm:1}],['AND',{rd:9,rs1:5,rs2:3}]]),note:'Delayed branch con 3 delay slot: le 3 istruzioni dopo BNEZ vengono eseguite sempre, salto preso o no. Il compilatore ci mette istruzioni utili; il salto va a 18h (AND) e salta solo la ADDI. Nessun flush, nessun ciclo perso per il salto.'},
+ {n:'✎ Il tuo programma',custom:true,c:[],note:'Programma scritto da te nell\'editor qui sopra.'}];
+const DEFSRC=`; Esercizio tipo: scrivi qui il codice, una istruzione per riga
+ADD  R7, R8, R9
+ADD  R1, R2, R3
+SUB  R4, R5, R6
+SUB  R10, R7, R20
+ADDI R25, R20, 8`;
+const CUSTOM=PIPP.length-1;
+const COLS=['#3fd0ff','#ffb547','#5be38c','#ff5fa8','#b892ff','#ff8a4c'];
+const dmv=a=>(0xD0000000|(a&0xFFFF))>>>0;
+function regInit(cfg){const r={0:0};for(let i=1;i<32;i++)r[i]=i*0x10;r[3]=0x300;r[6]=0x600;r[12]=0xC00;if(PIPP[cfg.p].br)r[4]=cfg.r4?0:0x40;return r}
+/* esecuzione funzionale di una istruzione: calcola X, risultato, condizione (write=false per le istruzioni annullate) */
+function pexec(e,regs,dm,pc,write){const x=e.x,a=regs[x.rs1]??0,bb=regs[x.rs2]??0,imm=immx(x);e.imm=imm;
+  if(x.k==='alur'){e.X=aop(x.m,a,bb);e.res=e.X}else if(x.k==='alui'){e.X=aop(x.m,a,imm);e.res=e.X}
+  else if(x.k==='lhi'){e.X=(x.imm<<16)>>>0;e.res=e.X}
+  else if(x.k==='load'){e.X=(a+imm)>>>0;e.L=dm[e.X]??dmv(e.X);e.res=e.L}
+  else if(x.k==='store'){e.X=(a+imm)>>>0;e.SM=bb;if(write)dm[e.X]=bb}
+  else if(x.k==='br'){e.X=(pc+4+imm)>>>0;e.cond=x.m==='BEQZ'?a===0:a!==0}
+  const d=dst(x);if(write&&d)regs[d]=e.res}
+function pipeTrace(cfg){
+  const PG=PIPP[cfg.p],P=PG.c,regs=regInit(cfg),dm={},E=[];let pc=0,g=0,tgt=null;
+  const push=(x,o)=>{const e=Object.assign({x,fl:false,id:E.length},o);if(tgt&&!e.fl){e.tgt=tgt;tgt=null}E.push(e);return e};
+  while(g++<30){const x=P.find(q=>q.addr===pc);if(!x)break;
+    const e=push(x,{});pexec(e,regs,dm,pc,true);
+    if(x.k==='br'&&PG.delayed){// 3 delay slot eseguiti sempre
+      for(let k=1;k<=3&&g<30;k++,g++){const y=P.find(q=>q.addr===pc+4*k);if(!y)break;const s=push(y,{slot:true,br:e});pexec(s,regs,dm,pc+4*k,true)}
+      e.delayed=true;if(e.cond){e.taken=true;tgt=e;pc=e.X}else pc+=16;continue}
+    if(x.k==='br'&&e.cond){for(let k=1;k<=3;k++){const y=P.find(q=>q.addr===pc+4*k);if(y){const f=push(y,{fl:true,br:e});pexec(f,regs,dm,pc+4*k,false)}}
+      e.taken=true;tgt=e;pc=e.X}else pc+=4;
+  }
+  if(!E.length)return{E,T:0,n:0,lost:0,flush:0,init:regInit(cfg)};
+  // tempi
+  E.forEach((e,n)=>{const p=E[n-1];
+    let IF=p?Math.max(p.IF+1,p.ID):1;const IF0=IF;
+    if(e.tgt)IF=Math.max(IF,e.tgt.MEM+1);e.tpen=IF-IF0;
+    e.nat=p?Math.max(p.IF+1,e.tgt?e.tgt.MEM+1:0):1;
+    let ID=Math.max(IF+1,p?p.EX:0),EX=0;e.why={};
+    let dID=0,dEX=0;
+    if(!e.fl)for(const r of srcs(e.x)){let j=null;for(let q=n-1;q>=0;q--){if(!E[q].fl&&dst(E[q].x)===r){j=E[q];break}}if(!j)continue;
+      if(!cfg.fu){const need=j.WB+(cfg.cs?0:1);if(need>dID){dID=need;e.why={r,j,t:'id'}}}
+      else if(j.x.k==='load'){const need=j.MEM+1;if(need>dEX){dEX=need;e.why={r,j,t:'ex'}}}}
+    ID=Math.max(ID,dID);EX=Math.max(ID+1,p?p.MEM:0,dEX);const MEM=Math.max(EX+1,p?p.WB:0);
+    Object.assign(e,{IF,ID,EX,MEM,WB:MEM+1})});
+  const Tt=Math.max(...E.map(e=>e.WB)),ex=E.filter(e=>!e.fl).length,fl=E.filter(e=>e.fl).length+E.reduce((s,e)=>s+(e.tpen||0),0);
+  return{E,T:Tt,n:ex,lost:Tt-(ex+4),flush:fl,init:regInit(cfg)};
+}
+function label(e,c){if(c===e.IF)return'IF';if(c===e.ID)return'ID';if(c===e.EX)return'EX';if(c===e.MEM)return'MEM';if(c===e.WB)return'WB';
+  if((c>e.IF&&c<e.EX)||(c>=e.nat&&c<e.IF))return'S';return''}
+function prodOf(tr,e,r){const n=e.id;for(let q=n-1;q>=0;q--){const p=tr.E[q];if(!p.fl&&dst(p.x)===r)return p}return null}
+function rfVal(tr,e,r,c,incl){// valore letto dal RF al clock c
+  if(r===0)return 0;for(let q=e.id-1;q>=0;q--){const p=tr.E[q];if(!p.fl&&dst(p.x)===r&&(incl?p.WB<=c:p.WB<c))return p.res}return tr.init[r]}
+function pipeAt(tr,c,cfg){
+  const st={IF:null,ID:null,EX:null,MEM:null,WB:null},stall=[],pre=[],ev=[];
+  for(const e of tr.E){const l=label(e,c);if(l&&l!=='S')st[l]=e;else if(l==='S'){if(c>e.IF)stall.push(e);else pre.push(e)}}
+  stall.sort((a,b)=>a.id-b.id);if(!st.ID&&stall.length)st.ID=stall.shift();const held=stall.splice(0);if(!st.IF&&held.length)st.IF=held[0];if(st.ID&&label(st.ID,c)==='S')stall.unshift(st.ID);
+  const ex=st.EX,fw={A:null,B:null};
+  if(ex&&!ex.fl){const ops=[['A',ex.x.rs1],['B',ex.x.k==='alur'||ex.x.k==='store'?ex.x.rs2:-1]];
+    for(const [side,r] of ops){if(r<=0)continue;const p=prodOf(tr,ex,r);if(!p)continue;
+      if(cfg.fu&&p.MEM===c){fw[side]='EX/MEM';ev.push({t:'fw',e:ex,r,p,from:'EX/MEM',side})}
+      else if(cfg.fu&&p.WB===c){fw[side]='MEM/WB';ev.push({t:'fw',e:ex,r,p,from:'MEM/WB',side})}}}
+  let byp=null;const idE=st.ID;
+  if(idE&&!idE.fl&&c===idE.ID)for(const r of srcs(idE.x)){const p=prodOf(tr,idE,r);if(p&&p.WB===c){byp={r,p,how:cfg.fu?'bypass':'split'};ev.push({t:cfg.fu?'byp':'split',e:idE,r,p})}}
+  for(const e of stall)ev.push({t:'stall',e});
+  const br=st.MEM&&st.MEM.taken?st.MEM:null;if(br)ev.push({t:br.delayed?'djump':'flush',e:br});
+  return{st,stall,pre,ev,fw,byp,br,held};
+}
+
+/* ================= PIPELINE: disegno ================= */
+const PS=[['IF',20,200],['ID',280,460],['EX',540,740],['MEM',820,990],['WB',1070,1260]];
+const BARS=[['ifid','IF/ID',205,[['PC1',95],['IR1',240]]],['idex','ID/EX',465,[['PC2',84],['A',128],['B',200],['Imm',330],['IR2',395]]],['exmem','EX/MEM',745,[['X',120],['SMDR',220],['cond',290],['IR3',395]]],['memwb','MEM/WB',995,[['Y',120],['LMDR',220],['IR4',395]]]];
+const PP={'pc>im':'80,140 80,200','pc>add':'125,115 140,115','add>pc1':'190,115 205,115','im>ir1':'190,260 205,260',
+ 'ir1>rf':'275,260 290,260','ir1>se':'275,272 282,272 282,350 290,350','ir1>dec':'275,280 278,280 278,400 290,400','pc1>pc2':'275,115 284,115 284,74 458,74 458,104 465,104',
+ 'rf>a':'410,146 418,146','byA>a':'448,146 465,146','rf>b':'410,220 418,220','byB>b':'448,220 465,220','se>imm':'370,350 465,350','dec>ir2':'450,400 465,410',
+ 'a>muxA':'535,146 552,146','b>muxB':'535,220 552,220','imm>muxB':'535,350 544,350 544,240 552,240','pc2>muxA':'535,104 549,104 549,118 552,118',
+ 'muxA>alu':'578,132 600,150','muxB>alu':'578,226 600,240','alu>x':'670,190 690,190 690,140 745,140','a>z0':'535,160 540,160 540,307 680,307','z0>cond':'730,307 745,310',
+ 'b>smdr':'578,236 588,236 588,282 738,282 738,240 745,240',
+ 'x>dm':'815,140 835,140','smdr>dm':'815,240 835,240','dm>lmdr':'975,240 995,240','x>y':'815,130 826,130 826,105 984,105 984,140 995,140','cond>br':'815,310 835,318',
+ 'y>mwb':'1065,140 1090,160','lmdr>mwb':'1065,240 1090,240','wb>rf':'1118,200 1150,200 1150,560 350,560 350,300','wb>byp':'433,560 433,250',
+ 'fwX>A':'780,120 780,98 565,98 565,105','fwX>B':'790,160 790,512 562,512 562,250','fwY>A':'1030,120 1030,90 571,90 571,105','fwY>B':'1040,160 1040,525 572,525 572,250',
+ 'br>pc':'905,340 905,600 14,600 14,108 35,108','stall1':'290,470 28,470 28,130 35,130','stall2':'240,470 240,285'};
+function pv(v){return v==null?'—':h8(v)}
+function drawPipe(tr,c,cfg){
+  const at=c?pipeAt(tr,c,cfg):{st:{},stall:[],pre:[],ev:[],fw:{},byp:null,br:null,held:[]},S=at.st;
+  const col=e=>e?e.fl&&c>e.br.MEM?'#6b7d75':COLS[e.x.idx%COLS.length]:'var(--mut)';
+  const held=at.held||[],live=k=>S[k]&&!(S[k].fl&&c>S[k].br.MEM)&&!(k==='ID'&&at.stall.includes(S[k]))&&!(k==='IF'&&held.includes(S[k]));
+  const on=new Set();
+  if(live('IF'))['pc>im','pc>add','add>pc1','im>ir1'].forEach(k=>on.add(k));
+  if(S.ID&&c===S.ID.ID&&live('ID'))['ir1>rf','ir1>se','ir1>dec','pc1>pc2','rf>a','byA>a','rf>b','byB>b','se>imm','dec>ir2'].forEach(k=>on.add(k));
+  if(live('EX')&&S.EX.x.k!=='nop'){const x=S.EX.x;on.add('alu>x');
+    if(x.k==='br'){on.add('pc2>muxA');on.add('imm>muxB');on.add('muxA>alu');on.add('muxB>alu');on.add('a>z0');on.add('z0>cond')}
+    else{if(!at.fw.A)on.add('a>muxA');on.add('muxA>alu');if(x.k==='alur'&&!at.fw.B)on.add('b>muxB');if(x.k!=='alur')on.add('imm>muxB');on.add('muxB>alu');if(x.k==='store')on.add('b>smdr')}
+    if(at.fw.A)on.add(at.fw.A==='EX/MEM'?'fwX>A':'fwY>A');if(at.fw.B)on.add(at.fw.B==='EX/MEM'?'fwX>B':'fwY>B')}
+  if(live('MEM')){const k=S.MEM.x.k;if(k==='load'){on.add('x>dm');on.add('dm>lmdr')}else if(k==='store'){on.add('x>dm');on.add('smdr>dm')}else if(k==='br'){on.add('cond>br');if(S.MEM.taken)on.add('br>pc')}else if(k!=='nop')on.add('x>y')}
+  if(live('WB')&&dst(S.WB.x)){on.add(S.WB.x.k==='load'?'lmdr>mwb':'y>mwb');on.add('wb>rf')}
+  if(at.byp&&cfg.fu)on.add('wb>byp');
+  const stl=at.stall.length>0||at.pre.length>0||held.length>0;if(stl){on.add('stall1');on.add('stall2')}
+  let o='';
+  // stadi e intestazioni
+  for(const [n,x0,x1] of PS){const e=S[n],stalled=n==='ID'&&e&&at.stall.includes(e),flushed=e&&e.fl&&c>e.br.MEM;
+    o+=`<rect x="${x0}" y="64" width="${x1-x0}" height="476" rx="10" class="stg"/>`;
+    o+=R(x0,14,x1-x0,42,e?'act':'')+T(x0+8,30,n,'vs')+T(x0+8,48,e?(flushed?e.x.t+' → NOP':e.x.t):(n==='IF'&&at.pre.length?'bloccato (STALL)':n==='EX'&&stl?'bolla (NOP)':'—'),'v','start',col(e))+(stalled?T(x1-8,30,'STALLO','vs','end','var(--bad)'):n==='IF'&&e&&held.includes(e)?T(x1-8,30,'FERMO','vs','end','var(--bad)'):'')}
+  // barriere
+  for(const [k,n,x,fs] of BARS){let g=`<rect x="${x}" y="64" width="70" height="476" rx="6" class="bar"/>`+T(x+35,78,n,'s','middle');
+    g+=fs.map(([f,y])=>R(x+4,y,62,40)+T(x+8,y+14,f,'s')+T(x+8,y+31,barVal(tr,at,c,k,f),'vs')).join('');o+=G('pipe',k,g)}
+  for(const k in PP){const kd=k.startsWith('fw')?'vio':k.startsWith('stall')?'bad':k==='br>pc'?'cs':k==='x>dm'||k==='pc>im'?'addr':'data';o+=W(PP[k],on.has(k),kd)}
+  // IF
+  o+=G('pipe','pc',R(35,90,90,50,live('IF')?'act':'')+T(43,106,'PC','s')+T(43,128,c&&S.IF?h8(S.IF.x.addr):'—','vs'));
+  o+=G('pipe','add',R(140,95,50,40,live('IF')?'act':'')+T(165,120,'+4','t','middle'));
+  o+=G('pipe','im',R(35,200,155,120,live('IF')?'act':'')+T(45,220,'IM')+T(45,236,'cache istruzioni','s')+T(45,262,live('IF')?h8(S.IF.x.hex)+'h':'','vs'));
+  // ID
+  const idL=S.ID&&c===S.ID.ID&&live('ID');
+  let rfv='';if(idL){const e=S.ID,rs=srcs(e.x);rs.forEach((r,j)=>{rfv+=T(300,250+j*18,`R${r} = ${h8(rfVal(tr,e,r,c,cfg.cs))}`,'vs')})}
+  o+=G('pipe','rf',R(290,90,120,210,idL||(S.WB&&live('WB')&&dst(S.WB.x))?'act':'')+T(300,110,'Register')+T(300,126,'File')+T(300,146,'letto in ID','s')+T(300,160,'scritto in WB','s')+(cfg.cs?T(300,180,'split-cycle:','s','start','var(--data)')+T(300,194,'scrive 1ª metà','s')+T(300,208,'legge 2ª metà','s'):'')+rfv);
+  o+=G('pipe','byp',R(418,100,30,150,at.byp&&cfg.fu?'wr':'')+T(433,180,'MUX','s','middle'));
+  o+=G('pipe','se',R(290,330,80,40,idL?'act':'')+T(300,355,'SE est.','s'));
+  o+=G('pipe','dec',R(290,385,160,32,idL?'act':'')+T(300,405,'DEC: opcode → controlli','s'));
+  o+=G('pipe','hz',R(290,440,160,60,stl?'sel':'')+T(300,460,'Rilevazione alee')+T(300,478,stl?'STALL = 1':'STALL = 0','vs','start',stl?'var(--bad)':''));
+  // EX
+  o+=G('pipe','mux',`<polygon points="552,105 578,115 578,160 552,170" class="bx ${live('EX')?'act':''}"/><polygon points="552,195 578,205 578,250 552,260" class="bx ${live('EX')?'act':''}"/>`+T(565,190,'MUX','s','middle'));
+  const xv=live('EX')?S.EX:null;
+  o+=G('pipe','alu',`<polygon points="600,110 670,140 670,240 600,270" class="bx ${xv&&xv.x.k!=='nop'?'act':''}"/>`+T(635,195,'ALU','t','middle')+T(635,212,xv?(xv.x.k==='nop'?'':xv.x.k==='br'?'PC2+imm':xv.x.k==='lhi'?'<<16':opSym(xv.x.m)||'+'):'','vs','middle','var(--data)'));
+  o+=G('pipe','z0',R(680,290,50,34,xv&&xv.x.k==='br'?'act':'')+T(705,312,'=0?','s','middle'));
+  o+=G('pipe','fu',R(600,440,135,60,at.ev.some(v=>v.t==='fw')?'wr':cfg.fu?'':'')+T(610,460,'Forwarding unit')+T(610,478,cfg.fu?(at.ev.some(v=>v.t==='fw')?'inoltro attivo':'attiva'):'assente (spenta)','vs','start',cfg.fu?'':'var(--hiz)'));
+  // MEM
+  const mv=live('MEM')?S.MEM:null;
+  o+=G('pipe','dm',R(835,120,140,160,mv&&(mv.x.k==='load'||mv.x.k==='store')?'act':'')+T(845,140,'DM')+T(845,156,'cache dati','s')+(mv&&mv.x.k==='load'?T(845,200,'legge '+h8(mv.X),'vs')+T(845,216,'= '+h8(mv.L),'vs'):mv&&mv.x.k==='store'?T(845,200,'scrive '+h8(mv.SM),'vs')+T(845,216,'a '+h8(mv.X),'vs'):''));
+  o+=G('pipe','br',R(835,300,140,40,mv&&mv.x.k==='br'?(mv.taken?'sel':'act'):'')+T(845,324,mv&&mv.x.k==='br'?(mv.taken?(mv.delayed?'salto: PC ← X (slot già dentro)':'salto: PC ← X, flush'):'non preso'):'branch: se cond PC ← X','s'));
+  // WB
+  const wv=live('WB')?S.WB:null;
+  o+=G('pipe','mwb',`<polygon points="1090,140 1118,152 1118,248 1090,260" class="bx ${wv&&dst(wv.x)?'act':''}"/>`+T(1104,205,'MUX','s','middle'));
+  if(wv&&dst(wv.x))o+=T(1130,240,`R${dst(wv.x)} ← ${h8(wv.res)}`,'vs');
+  // micro-operazioni
+  for(const [n,x0,x1] of PS)o+=`<foreignObject x="${x0}" y="612" width="${x1-x0+(n==='WB'?0:0)}" height="56"><div xmlns="http://www.w3.org/1999/xhtml" style="font:12px/1.3 'IBM Plex Mono',monospace;color:#ffb547">${microOp(tr,at,c,n,cfg)}</div></foreignObject>`;
+  o+=T(20,606,'micro-operazioni di questo clock','s');
+  $('p-fig').innerHTML=o;
+}
+function barVal(tr,at,c,k,f){const S=at.st,
+  e={ifid:S.IF&&(at.held||[]).includes(S.IF)?S.ID:S.IF,idex:S.ID&&c===S.ID.ID?S.ID:null,exmem:S.EX,memwb:S.MEM}[k];
+  if(!e||(e.fl&&c>e.br.MEM))return f.startsWith('IR')&&e?'NOP':'—';
+  const x=e.x;
+  if(f==='PC1'||f==='PC2')return h8(x.addr+4);
+  if(f.startsWith('IR'))return x.m;
+  if(f==='A')return x.rs1?h8(rfVal(tr,e,x.rs1,c,(tr.cs))):h8(0);
+  if(f==='B')return h8(rfVal(tr,e,x.k==='alur'||x.k==='store'?x.rs2:x.rd,c,tr.cs));
+  if(f==='Imm')return h8(e.imm);
+  if(f==='X')return pv(e.X);
+  if(f==='SMDR')return x.k==='store'?h8(e.SM):'—';
+  if(f==='cond')return x.k==='br'?(e.cond?'1 (salta)':'0'):'—';
+  if(f==='Y')return x.k==='load'||x.k==='store'||x.k==='br'?'—':pv(e.X);
+  if(f==='LMDR')return x.k==='load'?h8(e.L):'—';return'—'}
+function microOp(tr,at,c,n,cfg){const e=at.st[n];
+  if(!c)return'';
+  if(n==='IF'&&!e)return at.pre.length?'PC e IF/ID fermi (STALL)':'';
+  if(n==='EX'&&!e)return at.stall.length?'bolla: nessuna operazione':'';
+  if(!e)return'';
+  if(e.fl&&c>e.br.MEM)return'NOP (eliminata dal salto)';
+  if(n==='IF'&&(at.held||[]).includes(e))return'fermo in IF: PC e IF/ID bloccati (STALL)';
+  if(n==='ID'&&at.stall.includes(e)){const w=e.why;return w.r?`STALLO: aspetta R${w.r} da ${w.j.x.m}`:'STALLO'}
+  const x=e.x;
+  if(n==='IF')return`IR1 ← M[PC] · PC ← PC + 4`;
+  if(x.k==='nop')return n==='ID'?'NOP: nessun operando':'NOP: nessuna operazione';
+  if(n==='ID')return`A ← R${x.rs1}, B ← R${x.k==='alur'||x.k==='store'?x.rs2:x.rd}, Imm ← ${ZEXT.includes(x.m)?'zext':'sext'}`;
+  if(n==='EX'){if(x.k==='br')return`X ← PC2 + Imm = ${h8(e.X)} · cond ← (A ${x.m==='BEQZ'?'=':'≠'} 0)${at.fw.A?` (A da ${at.fw.A})`:''}`;if(x.k==='load'||x.k==='store')return`X ← A + Imm = ${h8(e.X)}${x.k==='store'?' · SMDR ← B':''}`;if(x.k==='lhi')return`X ← Imm ## 0000h`;
+    const fa=at.fw.A?` (A da ${at.fw.A})`:'',fb=at.fw.B?` (B da ${at.fw.B})`:'';return`X ← A ${opSym(x.m)} ${x.k==='alur'?'B':'Imm'} = ${h8(e.X)}${fa}${fb}`}
+  if(n==='MEM'){if(x.k==='load')return`LMDR ← M[X] = ${h8(e.L)}`;if(x.k==='store')return`M[X] ← SMDR`;if(x.k==='br')return e.taken?(e.delayed?'cond = 1: PC ← X (i 3 slot proseguono)':'cond = 1: PC ← X, flush'):'cond = 0: niente';return`Y ← X`}
+  if(n==='WB'){const d=dst(x);return d?`R${d} ← ${x.k==='load'?'LMDR':'Y'} = ${h8(e.res)}`:'(nessuna scrittura)'}return''}
+
+/* ================= SCHEDE INFO ================= */
+const INFO={seq:{
+ uc:['Unità di controllo','Rete sequenziale sincrona (RSS) descritta dal diagramma degli stati: ogni stato dura un clock ed esegue una micro-operazione.','Genera i segnali di controllo del datapath (OE e WE dei registri, comando della ALU) e MEMRD/MEMWR. Legge l\'opcode da IR, i flag della ALU, READY e INT. I primi tre stati (fetch 1, fetch 2, decode) sono uguali per tutte le istruzioni. I LED: INT = richiesta di interrupt dalla periferica, IEN = interrupt abilitati (flip-flop interno).'],
+ ir:['IR · Instruction Register','Registro a 32 bit caricato nel fetch con l\'istruzione letta dalla memoria.','Tiene ferma l\'istruzione per tutti i suoi stati. I campi sono in posizione fissa: opcode 31..26, RS1 25..21, RS2/RD 20..16, immediato 15..0. IR25..0 può uscire sui bus S1/S2 tramite tri-state (immediati e offset, estesi con segno).'],
+ k4:['Costante 4','Valore fisso che l\'unità di controllo mette sul bus S2.','Serve per PC ← PC + 4 in decode: nel sequenziale l\'incremento del PC lo fa la ALU.'],
+ pc:['PC · Program Counter','Registro con l\'indirizzo della prossima istruzione.','Nel fetch viene copiato in MAR (MAR ← PC); in decode diventa PC + 4; i salti presi lo sovrascrivono.'],
+ iar:['IAR · Interrupt Address Register','Registro che salva l\'indirizzo di ritorno quando si accetta un interrupt.','Nel fetch, con INT = 1 e IEN = 1: IAR ← PC, PC ← 0, IEN ← 0. La RFE lo ricopia nel PC (PC ← IAR, IEN ← 1). Lo vedi in azione nel programma «Interrupt e RFE».'],
+ temp:['TEMP','Registro temporaneo che pilota il bus S2.','Contiene il secondo operando della ALU: B per le istruzioni R, l\'immediato esteso per le I. Duplicando i percorsi si potrebbe evitare il passaggio da TEMP (un clock in meno).'],
+ a:['Registro A','Registro di uscita del register file, collegato al bus S1.','In decode riceve RS1 in modo speculativo, prima di sapere che istruzione è: base di load e store, primo operando delle ALU, registro testato dai branch (A = 0?).'],
+ b:['Registro B','Secondo registro di uscita del register file, collegato a S2.','In decode riceve il registro di IR20..16: RS2 nelle R, la destinazione nelle I (inutile, si ignora). Nelle store contiene il dato da scrivere.'],
+ c:['Registro C','Registro risultato davanti al register file.','Raccoglie il risultato della ALU o il dato esteso letto in memoria; l\'ultimo stato RD ← C lo scrive nel register file.'],
+ mar:['MAR · Memory Address Register','Registro con l\'indirizzo dell\'accesso in memoria.','È l\'unico collegato al bus indirizzi: MAR ← PC nel fetch, MAR ← A + immediato esteso nelle load e store. I suoi 2 bit bassi diventano i BE.'],
+ mdr:['MDR · Memory Data Register','Registro di transito dei dati da e per la memoria.','Load: MDR ← M[MAR], con il dato già allineato ai bit bassi dal mux di byte. Store: MDR ← B, poi M[MAR] ← MDR attraverso il demux di byte.'],
+ alu:['ALU','Rete puramente combinatoria a 32 bit: ingressi S1 e S2, uscita su Dest.','Somma, sottrazione, AND, OR, XOR, shift, passaggio di S1 o S2. Calcola anche PC + 4 e gli indirizzi. Il DLX non ha registro dei flag: zero, segno e carry vanno direttamente all\'unità di controllo.'],
+ rf:['Register File','32 registri da 32 bit, R0 = 0. Qui sono mostrati solo quelli usati.','Due porte di lettura verso A e B (due mux 32:1 comandati da RS1 e IR20..16) e una di scrittura da C (decoder 5→32 su RD + WE). La lettura è combinatoria.'],
+ s1:['Bus S1','Bus interno a 32 bit, multiplexato con tri-state.','Porta il primo operando alla ALU. Un solo registro alla volta abilita la sua uscita (OE) su S1: lo decide l\'unità di controllo.'],
+ s2:['Bus S2','Secondo bus interno a 32 bit, con tri-state.','Porta il secondo operando: TEMP, B, la costante 4 o l\'immediato di IR.'],
+ dest:['Bus Dest','Uscita della ALU.','Il risultato viene scritto nel registro il cui WE è attivo al fronte del clock (PC, TEMP, C, MAR o MDR).'],
+ xl:['Interfaccia bus','Collega MAR e MDR al bus di sistema.','Manda fuori BA31..2. Genera i BE da MAR1..0 e dalla dimensione del dato (opcode). In lettura un mux porta byte e halfword dalla loro corsia ai bit bassi di MDR; in scrittura un demux sposta i byte di MDR sulla corsia giusta.'],
+ ba:['BA · bus indirizzi','Escono solo BA31..2: BA1 e BA0 sono sostituiti dai BE.','I bit alti vanno al decoder di 1° livello (quale dispositivo), BA15..2 ai piedini dei banchi (quale riga: indirizzo fisico = logico / 4).'],
+ be:['BE3..0 · byte enable','Un segnale per corsia del bus dati.','Dicono quali byte della word partecipano al trasferimento: dipendono dall\'offset (MAR1..0) e dalla dimensione (byte, halfword, word).'],
+ memrd:['MEMRD','Comando di lettura generato dalla CPU.','Insieme al CS dice al dispositivo selezionato di mettere il dato sul bus.'],
+ memwr:['MEMWR','Comando di scrittura generato dalla CPU.','Insieme a CS e BE abilita la scrittura dei banchi di RAM.'],
+ ready:['READY','Ingresso della CPU, pilotato dalle memorie.','Una memoria lenta lo tiene a 0 per allungare il ciclo di bus: il controller resta nello stato di lettura o scrittura (stati di wait) finché READY = 1.'],
+ bd:['BD · bus dati','32 linee in 4 corsie da 8 bit, una per banco.','In ogni ciclo di bus ogni corsia è pilotata da un solo dispositivo; le corsie non usate restano in alta impedenza (Z, grigio tratteggiato).'],
+ dec:['Decoder di 1° livello','Rete combinatoria sui bit alti di BA (più MEMRD per le porte).','Genera un chip select per dispositivo, al massimo uno attivo per ciclo di bus. Decodifica semplificata: usa solo i bit che servono a distinguere i dispositivi, che quindi rispondono in più zone (aliasing).'],
+ eprom:['EPROM','Memoria di sola lettura: 4 banchi da 8 bit, uno per corsia.','Contiene il programma. Ogni banco ha il decoder di 2° livello al suo interno (riceve BA15..2) ed è abilitato da CS_EPROM · BEj. Ogni riga è una word: il banco j contiene il byte j di ogni istruzione.'],
+ ram:['RAM','Memoria dati: 4 banchi da 8 bit.','Ogni banco è abilitato da CS_RAM · BEj: in una SB scrive un solo banco, in una SW tutti e quattro, sempre alla stessa riga (BA15..2).'],
+ ports:['Porte di input e buffer tri-state','Due registri da 8 bit con dati dall\'esterno (sensori, interruttori…), collegati a BD7..0 e BD15..8 tramite buffer tri-state.','Ogni buffer si accende solo con CS_INPUT · BEj: spento, la sua uscita è in alta impedenza e non disturba chi usa il bus. Collegarle direttamente creerebbe conflitti. SWAP inverte quale porta va su quale corsia.']},
+pipe:{
+ pc:['PC','Nel pipelined si incrementa in IF con un sommatore dedicato (o un contatore programmabile a 30 bit).','Ogni clock fa il fetch di una nuova istruzione. Si carica con l\'indirizzo di salto dallo stadio MEM; con STALL = 1 resta fermo.'],
+ add:['Sommatore +4','Rete combinatoria dedicata allo stadio IF.','Calcola PC + 4 senza usare la ALU: elimina l\'alea strutturale sulla ALU tra IF ed EX.'],
+ im:['IM · cache istruzioni','Memoria veloce on-chip solo per le istruzioni.','Separata dalla DM (architettura Harvard): IF e MEM accedono alla memoria nello stesso clock senza alea strutturale.'],
+ ifid:['Registro di pipeline IF/ID','Separa IF e ID.','Contiene IR1 (l\'istruzione appena letta) e PC1 = PC + 4. Con STALL non si aggiorna. I valori mostrati sono quelli scritti alla fine di questo clock dallo stadio IF.'],
+ idex:['Registro di pipeline ID/EX','Separa ID ed EX.','Contiene A e B letti dal register file, l\'immediato esteso, PC2 e IR2 (i controlli decodificati viaggiano con l\'istruzione). I valori mostrati sono quelli scritti alla fine di questo clock dallo stadio ID.'],
+ exmem:['Registro di pipeline EX/MEM','Separa EX e MEM.','Contiene X (risultato ALU, indirizzo o destinazione del salto), SMDR (dato da scrivere), cond (esito del test) e IR3. Valori scritti alla fine di questo clock dallo stadio EX.'],
+ memwb:['Registro di pipeline MEM/WB','Separa MEM e WB.','Contiene Y (risultato ALU «parcheggiato») o LMDR (dato letto dalla DM) e IR4 con il numero del registro destinazione. Valori scritti alla fine di questo clock dallo stadio MEM.'],
+ rf:['Register File','Letto in ID, scritto in WB.','2 porte di lettura e 1 di scrittura. Con lo split-cycle si scrive nella prima metà del clock e si legge nella seconda: l\'istruzione in ID legge il dato che WB sta scrivendo.'],
+ byp:['MUX sull\'uscita del register file','Mux prima della barriera ID/EX (parte del forwarding).','Se il registro letto in ID è quello che WB sta scrivendo nello stesso clock, fa passare direttamente il dato di WB. Alternativa: split-cycle.'],
+ se:['Estensione del segno','Estende l\'immediato a 32 bit.','Lavora in ID su ogni istruzione, in modo speculativo: se l\'istruzione non ha immediato il valore si ignora.'],
+ dec:['Decodifica','Decodifica dell\'opcode in ID.','I controlli generati viaggiano con l\'istruzione negli stadi successivi: l\'unità di controllo è distribuita.'],
+ hz:['Rilevazione alee (STALL)','Confronta i registri sorgente dell\'istruzione in ID con le destinazioni delle istruzioni più avanti.','Se il dato non può arrivare in tempo genera STALL: PC e IF/ID si fermano e in EX entra una bolla (NOP). Lo stallo si propaga uno stadio alla volta.'],
+ mux:['MUX della ALU','Scelgono gli operandi della ALU.','Normalmente A e B (o PC2 e l\'immediato per i salti). Con il forwarding prendono il dato da EX/MEM o da MEM/WB.'],
+ alu:['ALU','Stadio EX.','Calcola il risultato, l\'indirizzo delle load/store (A + imm) o la destinazione dei branch (PC2 + imm).'],
+ z0:['Test =0?','Rete che controlla se A vale 0.','Calcola la condizione dei branch (BEQZ/BNEZ) e la mette in EX/MEM; il salto viene deciso nello stadio MEM.'],
+ fu:['Forwarding unit','Rete combinatoria.','Confronta RS1 e RS2 dell\'istruzione in EX con le RD in EX/MEM e MEM/WB (e i codici operativi, per sapere se scrivono davvero) e comanda i mux della ALU. Non può risolvere una load seguita subito da chi usa il dato.'],
+ dm:['DM · cache dati','Memoria dati separata (Harvard).','Le load leggono in LMDR, le store scrivono SMDR. Il dato di una load è pronto solo a fine MEM.'],
+ br:['Completamento del branch','Stadio MEM.','Se cond = 1 carica il PC con X. Con predict not taken trasforma in NOP le 3 istruzioni entrate dopo il branch (flush): nessuna ha ancora fatto WB, quindi nessun danno. Con il delayed branch invece quelle 3 istruzioni (delay slot) proseguono sempre.'],
+ mwb:['MUX di write back','Sceglie cosa scrivere nel register file.','Y (risultato ALU) oppure LMDR (dato di una load). Il registro destinazione arriva da IR4.']}};
+function nowSeq(k,sp){if(!sp)return'';const s=sp.s,act=sp.act.includes(k)||sp.wr.includes(k);
+  const val={pc:s.pc,iar:s.iar,temp:s.T,a:s.A,b:s.B,c:s.C,mar:s.MAR,mdr:s.MDR}[k];
+  let t=act?`Coinvolto nella micro-operazione <b>${sp.rtl}</b>.`:'Non usato in questo clock.';
+  if(val!=null)t+=` Valore: <b>${h8(val)}h</b>.`;
+  if(k==='uc')t+=` INT = ${s.int}, IEN = ${s.ien}.`;
+  if(sp.bus&&['ba','be','memrd','memwr','ready','bd','dec','eprom','ram','ports'].includes(k)){const b=sp.bus;t=`Ciclo di bus: BA31..2 = ${baS(b.ba)}, BE3..0 = ${b.be.slice().reverse().join('')}, ${b.rd?'MEMRD':'MEMWR'}, READY = ${b.ready}.`}
+  return t}
+function nowPipe(k,c,tr,cfg){if(!c)return'';const at=pipeAt(tr,c,cfg),S=at.st;
+  const stg={pc:'IF',add:'IF',im:'IF',ifid:'IF',rf:'ID',byp:'ID',se:'ID',dec:'ID',hz:'ID',idex:'ID',mux:'EX',alu:'EX',z0:'EX',fu:'EX',exmem:'EX',dm:'MEM',br:'MEM',memwb:'MEM',mwb:'WB'}[k];
+  if(k==='fu'){const f=at.ev.filter(v=>v.t==='fw');return f.length?f.map(v=>`inoltra R${v.r} da ${v.from} a ${v.e.x.m}`).join('; '):cfg.fu?'Nessun inoltro in questo clock.':'Spenta: le alee si risolvono solo con stalli.'}
+  if(k==='hz')return at.stall.length?`STALL: ${at.stall.map(e=>e.x.t).join(', ')} resta in ID.`:'Nessuna alea da bloccare.';
+  if(['ifid','idex','exmem','memwb'].includes(k)){const e={ifid:S.IF,idex:S.ID,exmem:S.EX,memwb:S.MEM}[k];return e?`Alla fine del clock lo stadio ${stg} scrive qui i dati di <b>${e.x.t}</b>${k==='idex'&&at.stall.includes(e)?' (ma è in stallo: in EX entra una bolla)':''}.`:`Lo stadio ${stg} è vuoto: niente da scrivere.`}
+  const e=S[stg];return e?`Stadio ${stg}: <b>${e.x.t}</b>. ${microOp(tr,at,c,stg,cfg)}`:`Stadio ${stg} vuoto in questo clock.`}
+function openCard(mode,k,ev){const d=INFO[mode][k];if(!d)return;PICK={m:mode,k};
+  const wrap=$(mode==='seq'?'s-wrap':'p-wrap'),r=wrap.getBoundingClientRect();let card=wrap.querySelector('.info');
+  if(!card){card=document.createElement('div');card.className='info';wrap.appendChild(card)}
+  const x=Math.min(Math.max(ev.clientX-r.left+14,8),r.width-370),y=Math.max(ev.clientY-r.top+14,8);card.style.left=Math.max(8,x)+'px';card.style.top=y+'px';
+  fillCard();if(mode==='seq')renderSeq();else renderPipe()}
+function fillCard(){const m=PICK.m,k=PICK.k;if(!m)return;const wrap=$(m==='seq'?'s-wrap':'p-wrap'),card=wrap.querySelector('.info');if(!card)return;const d=INFO[m][k];
+  const now=m==='seq'?nowSeq(k,ST.s.tr[ST.s.n-1]):nowPipe(k,ST.p.c,ST.p.tr,pcfg());
+  card.innerHTML=`<button class="x" aria-label="Chiudi">✕</button><h3>${d[0]}</h3><p><b>Cos'è.</b> ${d[1]}</p><p><b>A cosa serve.</b> ${d[2]}</p>${now?`<p class="now"><b>In questo clock.</b> ${now}</p>`:''}`;
+  card.querySelector('.x').onclick=closeCard}
+function closeCard(){const m=PICK.m;PICK={m:'',k:''};document.querySelectorAll('.info').forEach(c=>c.remove());if(m==='seq')renderSeq();else if(m==='pipe')renderPipe()}
+
+/* ================= QUIZ ================= */
+function mkQ(q,ok,bad,why,seed){const o=[...new Set([ok,...bad.filter(b=>b!==ok)])].slice(0,4);return{q,opts:shuf(o,seed),ok,why}}
+function seqQuiz(tr,n,mode){const nx=tr[n];if(!nx||!mode)return null;const P=SEQP[scfg().p].c,ins=P[nx.i];
+  if(nx.st.startsWith('FETCH 2')&&tr.findIndex(t=>t.st.startsWith('FETCH 2'))===n)return mkQ('Fetch: quale chip select si attiverà?','CS_EPROM',['CS_RAM','CS_INPUT','nessuno'],'Il programma sta nella EPROM, da 00000000h.',n);
+  if(nx.st==='INTERRUPT')return mkQ('Prima del fetch arriva INT = 1 con IEN = 1. Cosa fa il controller in questo clock?','IAR ← PC · PC ← 0 · IEN ← 0',['MAR ← PC (INT viene ignorato)','IAR ← PC + 4 · PC ← 0','PC ← IAR · IEN ← 1','R31 ← PC · PC ← 0'],'Salva in IAR l\'indirizzo dell\'istruzione non ancora eseguita, salta all\'handler (indirizzo 0) e disabilita gli interrupt.',n);
+  if(nx.st==='RFE')return mkQ('RFE: cosa fa nel suo stato di esecuzione?','PC ← IAR · IEN ← 1',['IAR ← PC · IEN ← 0','PC ← R31','PC ← PC + 4','PC ← IAR (IEN resta 0)'],'Torna all\'istruzione salvata in IAR e riabilita gli interrupt.',n);
+  if(nx.bus&&nx.st.startsWith('MEMORY')&&!(tr[n-1]&&tr[n-1].st.startsWith('MEMORY')))return mkQ(`${ins.t}: quali BE si attiveranno?`,beName(nx.bus.be),['BE3..BE0','BE1, BE0','BE0','BE3','BE1','BE3, BE2'],'Offset (MAR1..0) + dimensione del dato (dall\'opcode) → BE.',n);
+  if(nx.ext)return mkQ(`Che valore finirà in C?`,h8(nx.s.C)+'h',[h8(nx.s.MDR)+'h',h8((nx.s.MDR|0xFFFF0000)>>>0)+'h',h8((nx.s.MDR<<16)>>>0)+'h',h8((nx.s.MDR|0xFFFFFF00)>>>0)+'h'],'Load signed: il dato si estende con il suo bit più alto.',n);
+  if(ins&&(ins.k==='load'||ins.k==='store')&&nx.st.startsWith('EXECUTE')&&nx.wr.includes('mar')){const a=nx.s.A,im=sx16(ins.imm);
+    return mkQ(`${ins.t}: che indirizzo finirà in MAR?`,h8(nx.s.MAR)+'h',[h8(a)+'h',h8(im)+'h',h8((a+(ins.imm&0xFFFF))>>>0)+'h',h8((a+im+4)>>>0)+'h',h8(((ins.imm&0xFFFF)<<16)>>>0)+'h'],`Base + spiazzamento: A (R${ins.rs1}) + immediato esteso con segno.`,n)}
+  if(ins&&ins.k==='br'&&nx.st==='DECODE'){const tk=tr[n+1]&&tr[n+1].st==='BRANCH',r=ins.rs1,v=nx.s.regs[r]??0;
+    return mkQ(`${ins.t} con R${r} = ${h8(v)}h: il salto sarà preso?`,tk?'sì: c\'è uno stato in più (PC ← PC + offset)':'no: si torna subito al fetch',['sì: c\'è uno stato in più (PC ← PC + offset)','no: si torna subito al fetch'],`${ins.m} salta se R${r} ${ins.m==='BEQZ'?'= 0':'≠ 0'}.`,n)}
+  if(mode<2)return null;
+  const pool=[...new Set(tr.map(s=>s.rtl))].filter(r=>r!==nx.rtl);const bad=shuf(pool,n).slice(0,3);
+  return mkQ('Quale micro-operazione eseguirà il controller al prossimo clock?',nx.rtl,bad,`Stato «${nx.st}» del diagramma degli stati.`,n)}
+function pipeQuiz(tr,c,cfg){
+  if(c===0)return mkQ(`Prima di partire: quanti cicli persi (stalli + flush) avrà questo programma con ${cfg.fu?'forwarding':'nessun forwarding'}${cfg.cs?' e split-cycle':''}?`,String(tr.lost),['0','1','2','3','4'],`Il programma impiega ${tr.T} clock contro gli ${tr.n+4} ideali (istruzioni + 4).`,c);
+  const at=pipeAt(tr,c+1,cfg);
+  const f=at.ev.find(v=>v.t==='fw');if(f)return mkQ(`Clock ${c+1}: da dove prende R${f.r} l'istruzione ${f.e.x.t} in EX?`,'dalla barriera '+f.from,['dalla barriera EX/MEM','dalla barriera MEM/WB','dal register file (in ID)','deve stallare'],`Il produttore ${f.p.x.t} è in ${f.from==='EX/MEM'?'MEM':'WB'}: il suo risultato è nella barriera ${f.from} e la forwarding unit lo porta al mux della ALU.`,c);
+  const s=at.ev.find(v=>v.t==='stall'&&c+1>v.e.IF&&label(v.e,c)!=='S');if(s)return mkQ(`Clock ${c+1}: cosa succede a ${s.e.x.t}?`,'stallo: resta in ID',['stallo: resta in ID','passa in EX normalmente','passa in EX con forwarding','viene eliminata (NOP)'],s.e.why.r?`Aspetta R${s.e.why.r} da ${s.e.why.j.x.t}, ${s.e.why.t==='ex'?'una load: il dato è pronto solo a fine MEM':'che lo scrive solo in WB'}.`:'Lo stadio successivo è occupato.',c);
+  const b=at.ev.find(v=>v.t==='byp'||v.t==='split');if(b)return mkQ(`Clock ${c+1}: ${b.e.x.t} legge R${b.r} in ID mentre ${b.p.x.t} lo scrive in WB. Che valore legge?`,'quello nuovo',['quello nuovo','quello vecchio','deve stallare un clock','nessuno'],b.t==='byp'?'Il mux prima di ID/EX passa il dato di WB.':'Split-cycle: si scrive nella prima metà del clock e si legge nella seconda.',c);
+  const dj=at.ev.find(v=>v.t==='djump');if(dj)return mkQ(`Clock ${c+1}: ${dj.e.x.t} (delayed branch) è in MEM con condizione vera. Cosa succede alle 3 istruzioni entrate dopo?`,'proseguono: sono i delay slot',['diventano NOP (flush)','proseguono: sono i delay slot','la pipeline si ferma 3 clock','tornano in IF'],'Delayed branch: le istruzioni nei delay slot si eseguono sempre, il salto ha effetto dopo di loro. Nessun ciclo perso.',c);
+  const fl=at.ev.find(v=>v.t==='flush');if(fl)return mkQ(`Clock ${c+1}: ${fl.e.x.t} è in MEM con condizione vera. Cosa succede alle istruzioni entrate dopo?`,'diventano NOP (flush)',['proseguono normalmente','diventano NOP (flush)','la pipeline si svuota del tutto','tornano in IF'],'Predict not taken: le 3 istruzioni prelevate dopo il branch vengono annullate. Non hanno ancora fatto WB.',c);
+  return null}
+
+/* ================= EDITOR DEL PROGRAMMA ================= */
+function parseNum(t){t=(t||'').trim();
+  if(/^[-+]?0x[0-9a-f]+$/i.test(t))return parseInt(t,16);
+  if(/^[-+]?[0-9a-f]+h$/i.test(t))return parseInt(t.slice(0,-1),16);
+  if(/^[-+]?\d+$/.test(t))return parseInt(t,10);return NaN}
+function parseProg(src){const labels={},items=[],err=[],out=[];let a=0;
+  src.split('\n').forEach((raw,ln)=>{let l=raw.replace(/(;|\/\/|#).*$/,'').trim();if(!l)return;let m;
+    while((m=l.match(/^([A-Za-z_][\w.]*)\s*:\s*/))){labels[m[1].toLowerCase()]=a;l=l.slice(m[0].length)}
+    if(l){items.push({l,ln:ln+1,addr:a});a+=4}});
+  for(const it of items){const mm=it.l.match(/^([A-Za-z]+)\s*(.*)$/);const E=msg=>err.push(`Riga ${it.ln}: ${msg}`);
+    if(!mm){E(`non capisco «${it.l}»`);continue}
+    const m=mm[1].toUpperCase(),ops=mm[2]?mm[2].split(',').map(x=>x.trim()).filter(x=>x!==''):[];
+    if(!OPS[m]||m==='RFE'){E(m==='RFE'?'RFE qui non è gestita (prova il programma «Interrupt e RFE» nel sequenziale)':`istruzione «${mm[1]}» non riconosciuta`);continue}
+    const k=kind(m),o={addr:it.addr};let ok=true;
+    const reg=x=>{const r=/^r(\d{1,2})$/i.exec(x||'');if(!r||+r[1]>31){E(`registro «${x||''}» non valido`);ok=false;return 0}return +r[1]};
+    const num=x=>{const v=parseNum(x);if(isNaN(v)){E(`numero «${x||''}» non valido`);ok=false;return 0}if(v<-32768||v>65535){E(`immediato ${x} oltre i 16 bit`);ok=false}return v&0xFFFF};
+    const mem=x=>{const r=/^(.*)\(\s*(r\d{1,2})\s*\)$/i.exec(x||'');if(!r){E(`atteso offset(Rn), trovato «${x||''}»`);ok=false;return[0,0]}return[r[1].trim()===''?0:num(r[1]),reg(r[2])]};
+    const need=n=>{if(ops.length!==n){E(`${m} vuole ${n} operandi, ne ho trovati ${ops.length}`);ok=false;return false}return true};
+    if(k==='nop'){if(ops.length){E('NOP non ha operandi');ok=false}}
+    else if(k==='alur'){if(need(3)){o.rd=reg(ops[0]);o.rs1=reg(ops[1]);o.rs2=reg(ops[2])}}
+    else if(k==='alui'){if(need(3)){o.rd=reg(ops[0]);o.rs1=reg(ops[1]);o.imm=num(ops[2])}}
+    else if(k==='lhi'){if(need(2)){o.rd=reg(ops[0]);o.imm=num(ops[1])}}
+    else if(k==='load'){if(need(2)){o.rd=reg(ops[0]);[o.imm,o.rs1]=mem(ops[1])}}
+    else if(k==='store'){if(need(2)){if(ops[0].includes('(')){[o.imm,o.rs1]=mem(ops[0]);o.rs2=reg(ops[1])}else{o.rs2=reg(ops[0]);[o.imm,o.rs1]=mem(ops[1])}}}
+    else if(k==='br'){if(need(2)){o.rs1=reg(ops[0]);const lb=labels[ops[1].toLowerCase()];if(lb!=null)o.imm=(lb-(it.addr+4))&0xFFFF;else o.imm=num(ops[1])}}
+    if(ok)out.push([m,o,''])}
+  if(!items.length)err.push('Scrivi almeno una istruzione.');
+  if(out.length>16)err.push('Al massimo 16 istruzioni.');
+  return{c:err.length?null:mk(out),err,n:out.length}}
+const LSK='dlx-sim-prog';
+function loadSrc(){try{return localStorage.getItem(LSK)||DEFSRC}catch(e){return DEFSRC}}
+function saveSrc(t){try{localStorage.setItem(LSK,t)}catch(e){}}
+{const t=loadSrc();let r=parseProg(t);$('p-src').value=t;if(!r.c){r=parseProg(DEFSRC)}PIPP[CUSTOM].c=r.c}
+
+/* ================= STATO E UI ================= */
+const scfg=()=>({p:+$('s-prog').value,swap:$('s-swap').checked,wait:$('s-wait').checked,pa:parseInt($('s-pa').value,16)&255||0,pb:parseInt($('s-pb').value,16)&255||0});
+const pcfg=()=>({p:+$('p-prog').value,fu:$('p-fu').checked,cs:$('p-cs').checked,r4:$('p-r4').checked});
+const sq=()=>+$('s-quizm').value;
+const ST={s:{n:0,tr:[],pend:null,fb:'',sc:{ok:0,tot:0},timer:null},p:{c:0,tr:null,pend:null,fb:'',sc:{ok:0,tot:0},timer:null,asked0:false,cases:[0,0,0],grid:{},gchk:false,gdone:false}};
+$('s-prog').innerHTML=SEQP.map((p,i)=>`<option value="${i}">${p.n}</option>`).join('');
+$('p-prog').innerHTML=PIPP.map((p,i)=>`<option value="${i}">${p.n}</option>`).join('');
+function rebuildSeq(keep){const c=scfg();ST.s.tr=seqTrace(c);if(!keep)ST.s.n=0;ST.s.n=Math.min(ST.s.n,ST.s.tr.length);ST.s.pend=null;renderSeq()}
+function rebuildPipe(keep,keepGrid){const c=pcfg();ST.p.tr=pipeTrace(c);ST.p.tr.cs=c.cs||c.fu;
+  ST.p.cases=[{fu:false,cs:false},{fu:true,cs:false},{fu:false,cs:true}].map(o=>{const t=pipeTrace({...c,...o});return t.lost-t.flush});
+  if(!keepGrid){ST.p.grid={};ST.p.gdone=false}ST.p.gchk=false;
+  if(!keep)ST.p.c=0;ST.p.c=Math.min(ST.p.c,ST.p.tr.T);ST.p.pend=null;renderPipe();renderCmp()}
+function qzHTML(st){let q=st.fb||'';if(st.pend)q+=`<div class="quiz"><h3>Prevedi: ${st.pend.q}</h3><div class="opts">${st.pend.opts.map(x=>`<button data-a="${x.replace(/"/g,'&quot;')}">${x}</button>`).join('')}</div></div>`;return q}
+function renderSeq(){const c=scfg(),S=ST.s,tr=S.tr,n=S.n,sp=n?tr[n-1]:null,PG=SEQP[c.p],P=PG.c;
+  drawSeq(sp,c);
+  $('s-cnt').textContent=`clock ${n} / ${tr.length}`;$('s-back').disabled=n===0;$('s-next').disabled=n>=tr.length;
+  $('s-score').textContent=sq()?`· quiz ${S.sc.ok}/${S.sc.tot}`:'';
+  $('s-qz').innerHTML=qzHTML(S);
+  const PH=['IF','ID','EX','MEM','WB'];$('s-ph').innerHTML=PH.map(p=>`<span class="ph ${sp&&sp.ph===p?'on':''}">${p}</span>`).join('');
+  if(!sp){$('s-ttl').textContent='Reset: premi Avanza clock';$('s-rtl').textContent='PC ← '+h8(PG.start||0)+'h';
+    $('s-txt').innerHTML=`<p>Il controller parte dallo stato di fetch. I registri hanno valore ignoto (tranne R0 = 0) e i bus di sistema sono in alta impedenza: nessuno li pilota.</p>${PG.intAt!=null?`<p>Il programma principale parte da ${h8(PG.start)}h; l'<b>handler</b> dell'interrupt sta a 00000000h. Durante l'esecuzione la periferica alzerà <b>INT</b>.</p>`:''}<p>Ogni pressione di <b>Avanza clock</b> esegue <b>uno stato</b> del diagramma degli stati. Il <b>quiz</b> può chiederti solo i punti chiave (CS, BE, indirizzi, salti, interrupt) oppure ogni micro-operazione.</p>`;$('s-bus').textContent='Bus di sistema: tutto in alta impedenza.'}
+  else{$('s-ttl').textContent=sp.i<0?`Interrupt — ${sp.st}`:`${P[sp.i].t} — ${sp.st}`;$('s-rtl').textContent=sp.rtl;$('s-txt').innerHTML=sp.txt;
+    const b=sp.bus;$('s-bus').textContent=b?`BA31..2 = ${baS(b.ba)} · BE3..0 = ${b.be.slice().reverse().join('')} · ${b.rd?'MEMRD':'MEMWR'} · READY = ${b.ready} · CS = ${b.cs.e?'EPROM':b.cs.r?'RAM':b.cs.i?'INPUT':'nessuno'} · BD = ${b.lanes.slice().reverse().map(x=>x==null?'Z':h2(x)).join(' ')}`:'Nessun ciclo di bus in questo clock: i bus di sistema sono in alta impedenza.'}
+  const fin=n>=tr.length,seen=new Set(tr.slice(0,n).map(t=>t.i));
+  $('s-list').innerHTML=P.map((q,j)=>{const ran=tr.some(t=>t.i===j),cur=sp&&sp.i===j&&!fin;return`<li class="${cur?'cur':seen.has(j)?'done':''}"><span>${h8(q.addr)}h</span><span>${q.t}</span><small>${q.why}${ran?'':' (non eseguita)'}</small></li>`}).join('');
+  fillCard()}
+/* diagramma temporale: normale oppure da compilare */
+const GCYC=['','IF','ID','EX','MEM','WB','S'];
+function gcols(tr){return Math.max(tr.T,Math.min(30,tr.E.length*3+5))}
+function gexp(e,k){return label(e,k)}
+function gcare(e,k){return!(e.fl&&k>e.br.MEM)}
+function gcheck(tr){let bad=0,miss=0;const cols=gcols(tr);
+  for(const e of tr.E)for(let k=1;k<=cols;k++){if(!gcare(e,k))continue;const v=ST.p.grid[e.id+':'+k]||'',x=gexp(e,k);if(v!==x){if(!v)miss++;else bad++}}return{bad,miss}}
+function renderTT(tr,c,cfg){const S=ST.p,exm=$('p-exm').checked;
+  $('p-gbar').hidden=!exm;$('p-tth').textContent=exm?'Compila il diagramma temporale':'Diagramma temporale';
+  $('p-ttn').innerHTML=exm?'Tocca una cella per scegliere IF → ID → EX → MEM → WB → S → vuota, oppure usa i tasti <b>I D E M W S</b> e Canc (frecce per spostarti). <b>S</b> = stallo, anche prima di IF se lo stadio IF è occupato. Per le istruzioni eliminate dal salto conta solo fino al MEM del branch. Compila prima di usare Avanza clock: lo schema mostra la soluzione.':'<b>S</b> = stallo. Righe barrate = istruzioni eliminate dal salto (diventano NOP). Tocca il numero di un clock per andarci.';
+  if(!exm){let h='<table class="tt"><thead><tr><th style="text-align:left;padding:0 10px">Istruzione</th>'+Array.from({length:tr.T},(_,i)=>`<th data-c="${i+1}" class="${i+1===c?'cur':''}">${i+1}</th>`).join('')+'</tr></thead><tbody>';
+    for(const e of tr.E){h+=`<tr><td class="n"><span class="dot" style="background:${e.fl?'#6b7d75':COLS[e.x.idx%COLS.length]}"></span>${e.fl?'<s>'+e.x.t+'</s> (flush)':e.x.t+(e.slot?' <small style="color:var(--mut)">· delay slot</small>':'')}</td>`;
+      for(let k=1;k<=tr.T;k++){const l=label(e,k),fl=e.fl&&k>e.br.MEM&&l&&l!=='S';h+=`<td class="${l?'c-'+(fl?'N':l):''}${fl?' fl':''}${k===c?' cur':''}"><span class="lb">${k<=c||$('p-quiz').checked===false?l:''}</span></td>`}h+='</tr>'}
+    $('p-tt').innerHTML=h+'</tbody></table>';return}
+  const cols=gcols(tr);
+  let h='<table class="tt"><thead><tr><th style="text-align:left;padding:0 10px">Istruzione</th>'+Array.from({length:cols},(_,i)=>`<th data-c="${i+1}" class="${i+1===c?'cur':''}">${i+1}</th>`).join('')+'</tr></thead><tbody>';
+  tr.E.forEach((e,ri)=>{h+=`<tr><td class="n"><span class="dot" style="background:${COLS[e.x.idx%COLS.length]}"></span>${e.x.t}</td>`;
+    for(let k=1;k<=cols;k++){const key=e.id+':'+k,v=S.grid[key]||'';let cl='g'+(v?' c-'+v:'');
+      if(S.gchk&&gcare(e,k)){const x=gexp(e,k);if(v!==x)cl+=v?' gx':' gm';else if(v)cl+=' gk'}
+      h+=`<td class="${cl}" tabindex="0" data-g="${key}" data-r="${ri}" data-k="${k}" aria-label="${e.x.t}, clock ${k}">${v}</td>`}h+='</tr>'});
+  $('p-tt').innerHTML=h+'</tbody></table>'}
+function gset(key,v,focus){ST.p.grid[key]=v;if(!v)delete ST.p.grid[key];ST.p.gchk=false;$('p-gres').textContent='';renderTT(ST.p.tr,ST.p.c,pcfg());if(focus){const el=document.querySelector(`[data-g="${key}"]`);if(el)el.focus()}}
+function renderPipe(){const cfg=pcfg(),S=ST.p,tr=S.tr,c=S.c,PG=PIPP[cfg.p],P=PG.c,exm=$('p-exm').checked;
+  drawPipe(tr,c,cfg);
+  $('p-r4w').hidden=!PG.br;$('p-ed').hidden=cfg.p!==CUSTOM;
+  $('p-cnt').textContent=`clock ${c} / ${tr.T}`;$('p-back').disabled=c===0;$('p-next').disabled=c>=tr.T;
+  $('p-score').textContent=$('p-quiz').checked?`· quiz ${S.sc.ok}/${S.sc.tot}`:'';
+  const dataSt=tr.lost-tr.flush;
+  const hide=($('p-quiz').checked&&c<tr.T)||(exm&&!S.gdone),q=v=>hide?'?':v;
+  $('p-stats').innerHTML=[[q(tr.T),'clock totali'],[tr.n,'istruzioni eseguite'],[q(dataSt),'stalli per alee di dato'],[q(tr.flush),'cicli persi per il salto'],[q((1+tr.lost/tr.n).toFixed(2)),'CPI = 1 + cicli persi / istruzioni']].map(([v,l])=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+  const cur=!cfg.fu&&!cfg.cs?0:cfg.fu?1:2,cn=['senza FU né split-cycle','con forwarding unit','con solo split-cycle'];
+  $('p-cases').innerHTML='Stalli di dato nei tre casi d\'esame: '+cn.map((n,i)=>`${i===cur?'<b>':''}${n}: ${hide?'?':S.cases[i]}${i===cur?'</b>':''}`).join(' · ')+'.';
+  renderTT(tr,c,cfg);
+  $('p-qz').innerHTML=qzHTML(S);
+  const at=c?pipeAt(tr,c,cfg):null;
+  if(!c){$('p-ttl').textContent='Pipeline vuota: premi Avanza clock';$('p-txt').innerHTML=`<p>Ogni clock entra una nuova istruzione in IF e tutte le altre avanzano di uno stadio. Con <b>${cfg.fu?'forwarding attivo':'forwarding spento'}</b>${cfg.cs?' e <b>split-cycle</b>':''} questo programma impiega <b>${hide?'?':tr.T} clock</b>.</p><p>${hide?'I conteggi si scoprono alla fine (quiz) o dopo la correzione (diagramma da compilare).':PG.note}</p>`}
+  else{$('p-ttl').textContent=`Clock ${c}`;let t='';
+    const sts=['IF','ID','EX','MEM','WB'].map(n=>{const e=at.st[n];return e?`<b>${n}</b>: ${e.fl&&c>e.br.MEM?'NOP (ex '+e.x.m+')':e.x.t}${n==='ID'&&at.stall.includes(e)?' (stallo)':''}`:`<b>${n}</b>: ${n==='EX'&&at.stall.length?'bolla':'—'}`});
+    t+=`<p>${sts.join(' · ')}</p>`;
+    for(const v of at.ev){if(v.t==='fw')t+=`<p>⇢ <b>Forwarding</b>: ${v.e.x.t} riceve R${v.r} dalla barriera <b>${v.from}</b> (prodotto da ${v.p.x.t}), senza aspettare il register file.</p>`;
+      if(v.t==='byp')t+=`<p>⇢ <b>Bypass in ID</b>: ${v.e.x.t} legge R${v.r} mentre ${v.p.x.t} lo scrive in WB: il mux prima di ID/EX passa il dato nuovo.</p>`;
+      if(v.t==='split')t+=`<p>⇢ <b>Split-cycle</b>: ${v.p.x.t} scrive R${v.r} nella prima metà del clock, ${v.e.x.t} lo legge nella seconda.</p>`;
+      if(v.t==='stall'){const w=v.e.why;t+=`<p>⛔ <b>Stallo</b>: ${v.e.x.t} resta in ID${w.r?`: aspetta R${w.r} da ${w.j.x.t}${w.t==='ex'?' (load: dato pronto solo a fine MEM, nemmeno il forwarding basta)':cfg.cs?' (con lo split-cycle può leggerlo nel clock del suo WB)':' (senza forwarding deve aspettare il clock dopo il suo WB)'}`:''}. PC e IF/ID sono fermi, in EX entra una bolla.</p>`}
+      if(v.t==='flush')t+=`<p>↩ <b>Salto preso</b>: ${v.e.x.t} in MEM carica il PC con ${h8(v.e.X)}h. Le istruzioni entrate dopo diventano NOP (flush).</p>`;
+      if(v.t==='djump')t+=`<p>↩ <b>Salto preso (delayed branch)</b>: ${v.e.x.t} in MEM carica il PC con ${h8(v.e.X)}h. Le 3 istruzioni nei <b>delay slot</b> sono già dentro e vengono eseguite comunque: nessun flush, nessun ciclo perso.</p>`}
+    if(!at.ev.length)t+='<p>Nessuna alea in questo clock: tutte le istruzioni avanzano di uno stadio.</p>';
+    $('p-txt').innerHTML=t}
+  $('p-list').innerHTML=P.map(q=>`<li class="${at&&Object.values(at.st).some(e=>e&&e.x===q&&!e.fl)?'cur':''}"><span>${h8(q.addr)}h</span><span>${q.t}</span></li>`).join('');
+  $('p-note').innerHTML=(hide?'':PG.note+' ')+'Valori iniziali: Ri = i·10h (R3 = 300h, R6 = 600h, R12 = C00h); la DM restituisce D000xxxxh.';
+  fillCard()}
+const seqStates=e=>3+({alur:3,alui:3,lhi:2,load:4,store:3,br:e.taken?1:0,nop:0,rfe:1}[e.x.k]??3);
+const seqSlide=e=>({load:8,store:7,br:e.taken?5:4,nop:4}[e.x.k]??6);
+function renderCmp(){const cfg=pcfg();$('c-cfg').textContent=`Pipelined: forwarding ${cfg.fu?'attivo':'spento'}, split-cycle ${cfg.cs?'attivo':'spento'}.`;
+  let h='<thead><tr><th>Programma</th><th>Istruzioni</th><th>Clock pipelined</th><th>Sequenziale: stati del simulatore</th><th>Sequenziale: tabella slide</th><th>Rapporto</th></tr></thead><tbody>';
+  PIPP.forEach((p,i)=>{const tr=pipeTrace({...cfg,p:i});if(!tr.T)return;const ex=tr.E.filter(e=>!e.fl),s1=ex.reduce((s,e)=>s+seqStates(e),0),s2=ex.reduce((s,e)=>s+seqSlide(e),0);
+    h+=`<tr><td>${p.n}</td><td>${tr.n}</td><td>${tr.T}</td><td>${s1}</td><td>${s2}</td><td>${(s1/tr.T).toFixed(1)}× – ${(s2/tr.T).toFixed(1)}×</td></tr>`});
+  $('c-tab').innerHTML=h+'</tbody>'}
+/* BTB */
+function renderBTB(){const N=Math.min(12,Math.max(2,+$('b-n').value||4)),M=Math.min(6,Math.max(1,+$('b-m').value||3));
+  let p1='T',s2=3,e1=0,e2=0,tot=0,h=`<thead><tr><th>Giro esterno</th><th></th>${Array.from({length:N},(_,i)=>`<th style="text-align:center">${i+1}</th>`).join('')}</tr></thead><tbody>`;
+  for(let j=1;j<=M;j++){const out=[],r1=[],r2=[];
+    for(let i=1;i<=N;i++){const o=i<N?'T':'N';tot++;
+      const ok1=p1===o;if(!ok1)e1++;r1.push(`<td class="${ok1?'okc':'ko'}">${p1} ${ok1?'✓':'✗'}</td>`);p1=o;
+      const pr=s2>=2?'T':'N',ok2=pr===o;if(!ok2)e2++;r2.push(`<td class="${ok2?'okc':'ko'}">${s2.toString(2).padStart(2,'0')}→${pr} ${ok2?'✓':'✗'}</td>`);s2=o==='T'?Math.min(3,s2+1):Math.max(0,s2-1);
+      out.push(`<td class="${o}">${o}</td>`)}
+    h+=`<tr><th rowspan="3">${j}</th><th>esito reale</th>${out.join('')}</tr><tr><th>1 bit</th>${r1.join('')}</tr><tr><th>2 bit</th>${r2.join('')}</tr>`}
+  $('b-tab').innerHTML=h+'</tbody>';
+  $('b-stats').innerHTML=[[tot,'esecuzioni del branch'],[e1,'errori con 1 bit ('+Math.round(100*(tot-e1)/tot)+'% giuste)'],[e2,'errori con 2 bit ('+Math.round(100*(tot-e2)/tot)+'% giuste)']].map(([v,l])=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('')}
+/* avanzamento con quiz */
+function sAdv(){const S=ST.s;if(S.n>=S.tr.length)return false;
+  if(sq()&&!S.pend){const q=seqQuiz(S.tr,S.n,sq());if(q){S.pend=q;S.fb='';renderSeq();return false}}
+  S.fb='';S.n++;renderSeq();return true}
+function pAdv(){const S=ST.p;if(S.c>=S.tr.T)return false;
+  if($('p-quiz').checked&&!S.pend){const q=pipeQuiz(S.tr,S.c,pcfg());if(q&&!(S.c===0&&S.asked0)){S.pend=q;S.fb='';if(S.c===0)S.asked0=true;renderPipe();return false}}
+  S.fb='';S.c++;renderPipe();return true}
+function answer(S,v,adv,render){if(!S.pend)return;const ok=v===S.pend.ok;S.sc.tot++;if(ok)S.sc.ok++;const p=S.pend;S.pend=null;
+  S.fb=`<div class="fb ${ok?'ok':'ko'}">${ok?'✓ Giusto.':'✗ Era <b>'+p.ok+'</b>.'} ${p.why}</div>`;const keep=S.fb;adv();S.fb=keep;render()}
+function timerOf(S,mode,play,adv,render){return ms=>{clearInterval(S.timer);S.timer=null;$(play).hidden=!ms;if(!ms)return;$(play).textContent='⏸ Pausa';
+  S.timer=setInterval(()=>{if(!adv()){if(S.pend){clearInterval(S.timer);S.timer=null;$(play).textContent='▶ Riprendi'}else{clearInterval(S.timer);S.timer=null;$(play).hidden=true;$(mode).value='0'}}},ms)}}
+const sStart=timerOf(ST.s,'s-mode','s-play',sAdv,renderSeq),pStart=timerOf(ST.p,'p-mode','p-play',pAdv,renderPipe);
+$('s-next').onclick=()=>{if(!ST.s.pend)sAdv()};$('s-back').onclick=()=>{if(ST.s.n>0){ST.s.n--;ST.s.pend=null;ST.s.fb='';renderSeq()}};
+$('s-reset').onclick=()=>{ST.s.n=0;ST.s.pend=null;ST.s.fb='';ST.s.sc={ok:0,tot:0};renderSeq()};
+$('s-prog').onchange=()=>{ST.s.fb='';rebuildSeq(false)};
+['s-swap','s-wait'].forEach(id=>$(id).onchange=()=>rebuildSeq(id==='s-swap'));['s-pa','s-pb'].forEach(id=>$(id).oninput=()=>rebuildSeq(true));
+$('s-quizm').onchange=()=>{ST.s.pend=null;ST.s.fb='';renderSeq()};
+$('s-mode').onchange=e=>{if(ST.s.n>=ST.s.tr.length)ST.s.n=0;renderSeq();sStart(+e.target.value)};
+$('s-play').onclick=()=>{if(ST.s.timer){clearInterval(ST.s.timer);ST.s.timer=null;$('s-play').textContent='▶ Riprendi'}else sStart(+$('s-mode').value)};
+$('s-qz').addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(b)answer(ST.s,b.dataset.a,()=>{ST.s.n++},renderSeq)});
+$('p-next').onclick=()=>{if(!ST.p.pend)pAdv()};$('p-back').onclick=()=>{if(ST.p.c>0){ST.p.c--;ST.p.pend=null;ST.p.fb='';renderPipe()}};
+$('p-reset').onclick=()=>{ST.p.c=0;ST.p.pend=null;ST.p.fb='';ST.p.sc={ok:0,tot:0};ST.p.asked0=false;renderPipe()};
+$('p-prog').onchange=()=>{ST.p.fb='';ST.p.asked0=false;rebuildPipe(false)};
+$('p-r4').onchange=()=>{ST.p.fb='';ST.p.asked0=false;rebuildPipe(false)};
+['p-fu','p-cs'].forEach(id=>$(id).onchange=()=>{ST.p.fb='';ST.p.asked0=false;rebuildPipe(false,true)});
+$('p-quiz').onchange=()=>{ST.p.pend=null;ST.p.fb='';renderPipe()};
+$('p-exm').onchange=()=>{ST.p.gchk=false;$('p-gres').textContent='';if($('p-exm').checked){ST.p.c=0;ST.p.pend=null}renderPipe()};
+$('p-mode').onchange=e=>{if(ST.p.c>=ST.p.tr.T)ST.p.c=0;renderPipe();pStart(+e.target.value)};
+$('p-play').onclick=()=>{if(ST.p.timer){clearInterval(ST.p.timer);ST.p.timer=null;$('p-play').textContent='▶ Riprendi'}else pStart(+$('p-mode').value)};
+$('p-qz').addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(b)answer(ST.p,b.dataset.a,()=>{ST.p.c++},renderPipe)});
+$('p-tt').addEventListener('click',e=>{const g=e.target.closest('td[data-g]');if(g){const v=ST.p.grid[g.dataset.g]||'';gset(g.dataset.g,GCYC[(GCYC.indexOf(v)+1)%GCYC.length],true);return}
+  const th=e.target.closest('th[data-c]');if(th){ST.p.c=Math.min(+th.dataset.c,ST.p.tr.T);ST.p.pend=null;ST.p.fb='';renderPipe()}});
+$('p-tt').addEventListener('keydown',e=>{const g=e.target.closest('td[data-g]');if(!g)return;const map={i:'IF',d:'ID',e:'EX',m:'MEM',w:'WB',s:'S'},k=e.key.toLowerCase();
+  if(map[k]){e.preventDefault();gset(g.dataset.g,map[k],true);const nx=document.querySelector(`[data-r="${g.dataset.r}"][data-k="${+g.dataset.k+1}"]`);if(nx)nx.focus();return}
+  if(['backspace','delete',' ','0'].includes(k)){e.preventDefault();gset(g.dataset.g,'',true);return}
+  if(k==='enter'){e.preventDefault();g.click();return}
+  const mv={arrowright:[0,1],arrowleft:[0,-1],arrowdown:[1,0],arrowup:[-1,0]}[k];if(mv){e.preventDefault();const nx=document.querySelector(`[data-r="${+g.dataset.r+mv[0]}"][data-k="${+g.dataset.k+mv[1]}"]`);if(nx)nx.focus()}});
+$('p-gchk').onclick=()=>{const r=gcheck(ST.p.tr);ST.p.gchk=true;if(!r.bad&&!r.miss)ST.p.gdone=true;
+  $('p-gres').textContent=!r.bad&&!r.miss?`✓ Tutto giusto: ${ST.p.tr.T} clock, ${ST.p.tr.lost-ST.p.tr.flush} stalli di dato.`:`✗ ${r.bad} celle sbagliate (bordo rosso), ${r.miss} mancanti (tratteggio).`;renderPipe()};
+$('p-gsol').onclick=()=>{const tr=ST.p.tr,cols=gcols(tr),g={};for(const e of tr.E)for(let k=1;k<=cols;k++){const x=gexp(e,k);if(x&&gcare(e,k))g[e.id+':'+k]=x}ST.p.grid=g;ST.p.gchk=true;ST.p.gdone=true;$('p-gres').textContent='Soluzione mostrata.';renderPipe()};
+$('p-gclr').onclick=()=>{ST.p.grid={};ST.p.gchk=false;ST.p.gdone=false;$('p-gres').textContent='';renderPipe()};
+let edT=null;$('p-src').addEventListener('input',()=>{clearTimeout(edT);edT=setTimeout(()=>{const t=$('p-src').value,r=parseProg(t);
+  if(r.c){PIPP[CUSTOM].c=r.c;saveSrc(t);$('p-err').className='ok2';$('p-err').textContent=`✓ ${r.n} istruzioni caricate.`;if(+$('p-prog').value===CUSTOM){ST.p.asked0=false;rebuildPipe(false)}else renderCmp()}
+  else{$('p-err').className='err';$('p-err').textContent=r.err.slice(0,6).join('\n')+'\n(resta caricata l\'ultima versione corretta)'}},300)});
+['b-n','b-m'].forEach(id=>$(id).oninput=renderBTB);
+$('s-fig').addEventListener('click',e=>{const g=e.target.closest('[data-k]');if(g)openCard('seq',g.dataset.k,e)});
+$('p-fig').addEventListener('click',e=>{const g=e.target.closest('[data-k]');if(g)openCard('pipe',g.dataset.k,e)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeCard();if(['SELECT','INPUT','TEXTAREA'].includes(e.target.tagName)||e.target.closest('td[data-g]'))return;const v=curView();
+  if(e.key==='ArrowRight'){e.preventDefault();$(v==='pipe'?'p-next':'s-next').click()}if(e.key==='ArrowLeft'){e.preventDefault();$(v==='pipe'?'p-back':'s-back').click()}});
+/* schede */
+function curView(){const h=location.hash.slice(1);return h==='pipeline'?'pipe':h==='confronto'?'cmp':'seq'}
+function route(){const v=curView();['seq','pipe','cmp'].forEach(k=>$('v-'+k).hidden=k!==v);document.querySelectorAll('#tabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===v));closeCard()}
+window.addEventListener('hashchange',route);
+rebuildSeq(false);rebuildPipe(false);renderBTB();route();
 }
 </script>
 </body>
